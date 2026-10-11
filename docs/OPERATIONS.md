@@ -158,3 +158,15 @@
 - 恢复缺失的缓存对象：停止服务后删除 `.runtime/web-static/manifest.json`，再按原环境运行 `--setup-only`；缺失的内容文件会重新生成。若怀疑已有对象内容损坏，删除整个 `.runtime/web-static` 后重新准备。该目录只保存可重建的 App 静态资源，没有 profile/聊天记录。
 - 回滚：恢复上一版代码并按原命令重启，原 manifest 校验会重建 App 副本；无需清理 `.profile`。旧代码不使用新增的磁盘缓存，可在服务停止后删除 `.runtime/web-static` 回收空间。
 - 启动诊断：网页控制台的 `window.chatgptWebStartup.timings` 与 `chatgpt-web:*` Performance marks 记录阶段时间，真正就绪时输出一次汇总；认证后的 `/bridge/status` 增加 staticVersion、uptimeMs 和 rendererReadyMs。后两者从桥接主模块开始执行计时，不含 setup。
+
+## 2026-10-11 · 最小宿主 renderer 与订阅清理
+
+- 默认 `CHATGPT_WEB_HOST_RENDERER=minimal`。仅在可重建的 App 副本中将宿主 `webview/index.html` 替换为无脚本、无样式依赖的空文档；保留原窗口 URL、原 preload、IPC 信任校验和 MessagePort。宿主不再运行第二份完整 React 界面。
+- 原 HTML 单独保存为 `.vite/build/web-original.html`，HTTP 页面使用它；静态准备直接读取原安装包资源。浏览器仍运行原界面，后端服务与桥接架构不变。切换宿主模式不改变浏览器静态资源版本。
+- 最后一个浏览器 worker 订阅退出时，立即停止对应宿主监听；断线后关闭端口和 worker，并在 minimal 模式释放该浏览器注册的 shared-object 订阅。full 模式的原界面共享同一窗口订阅，因此不批量取消 shared-object 订阅。
+- minimal 模式在没有浏览器接收方时确认被丢弃的原生分块消息，释放发送方的流控等待；有连接时仍由真实浏览器消费并确认。不保存离线消息队列，不伪造浏览器首屏信号。
+- 生效：停止服务后，按原启动命令重启，准备流程自动检测模式并重建副本。`/bridge/status` 的 `hostRenderer` 可确认实际准备模式。
+- 兼容回退：在原启动命令前增加 `CHATGPT_WEB_HOST_RENDERER=full`，例如 `CHATGPT_WEB_HOST_RENDERER=full sh run.sh`（若原来使用该脚本）。需要先停止现有服务；保留原访问源、认证、profile 及其他参数。恢复 minimal 时移除该变量或显式设为 minimal，然后重启。
+- 行为边界：宿主不再自行运行完整桌面界面及其 UI 生命周期；renderer_ready、first_content_visible、background_ready 仍由浏览器原界面实际触发。依赖这些阶段的后台工作可能要等浏览器首次初始化；需要原桌面初始化行为时使用 full。宿主自身不会提供原桌面聊天界面。
+- 内存复现：停止 Web 宿主后运行 `python3 scripts/smoke-memory.py`。脚本为 full/minimal 各启动两次临时 Electron profile，采集进程树 PSS，执行只读服务查询及临时文件下载检查，退出后清理测试进程/profile 并恢复调用者环境的准备模式。它会重建副本，不能与正在运行的 Web 宿主并行使用。
+- 该脚本仍使用本机原后端配置，临时 Electron profile 不等于隔离所有 Codex 全局配置或插件。测试不发起模型任务、不操作网页、不运行 Docker；结果在 `.logs/memory-check.json`，原生日志在 `.logs/memory-*.log`，均不纳入 Git。

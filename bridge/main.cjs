@@ -8,8 +8,8 @@ const http = require('node:http');
 const {WebSocketServer} = require(path.join(process.env.CHATGPT_WEB_ROOT, 'node_modules/ws'));
 const access=require('./web-access.cjs')();
 const {port,origin}=access;
-const webroot = path.join(app.getAppPath(), 'webview');
-const originalHtml = fs.readFileSync(path.join(webroot,'index.html'),'utf8');
+const originalHtml = fs.readFileSync(path.join(__dirname,'web-original.html'),'utf8');
+const hostRenderer=JSON.parse(fs.readFileSync(path.join(process.env.CHATGPT_WEB_ROOT,'prepare-manifest.json'))).host_renderer;
 const codec=require('./web-codec.js');
 let peer = null;
 let relayContentsId = null;
@@ -72,7 +72,7 @@ const server = http.createServer(async(req,res)=>{
     return;
   }
   if(u.pathname==='/bridge/bootstrap') return json(res,snapshot?200:503,snapshot || {error:'App renderer is not ready'});
-  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
+  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,hostRenderer,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
   if(!['GET','HEAD'].includes(req.method)) {res.writeHead(405);return res.end();}
   try {
     const versioned=u.pathname.startsWith(staticPrefix);
@@ -124,6 +124,11 @@ ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
   }
   if(message.kind==='event' && snapshot){
     const eventValue=codec.decode(message.value);
+    // Without a native UI, undeliverable chunks have no consumer to acknowledge
+    // them. Release the host sender's flow-control wait instead of retaining it.
+    if(hostRenderer==='minimal'&&client?.readyState!==1&&eventValue?.marker==='codex-host-chunked-message-v1'&&typeof eventValue.transferId==='string'&&Number.isSafeInteger(eventValue.sequence)){
+      peer?.send(JSON.stringify({kind:'ack-discarded-chunk',transferId:eventValue.transferId,sequence:eventValue.sequence}));
+    }
     if(eventValue?.type==='shared-object-updated'){
       const current=codec.decode(snapshot);current.shared[eventValue.key]=eventValue.value;snapshot=codec.encode(current);
     }

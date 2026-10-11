@@ -77,7 +77,9 @@ async function main(){
  if(process.argv.includes('--check')){if(!ready)throw Error('Static resources are missing or stale; run scripts/start.sh to prepare them');return;}
  if(ready)return;
  console.log('Preparing versioned web resources (one-time compression)...');
- const archive=openArchive(path.join(root,'.runtime/resources/app.asar'));
+ // Host index.html may be a minimal relay document. Web resources always come
+ // from the original package; bridge files are added separately below.
+ const archive=openArchive(prepared.source);
  try{
   const html=archive.read('index.html').toString();
   const bridge=new Map(['codec.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));

@@ -5,6 +5,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE = pathlib.Path(os.environ.get('CHATGPT_APP_DIR', '/usr/lib/chatgpt'))
 RUNTIME = ROOT / '.runtime'
 archive = SOURCE / 'resources/app.asar'
+host_renderer = os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal')
+if host_renderer not in ('minimal', 'full'):
+    raise SystemExit('CHATGPT_WEB_HOST_RENDERER must be minimal or full')
 (ROOT/'.logs').mkdir(exist_ok=True, mode=0o700)
 inherited_lock = os.environ.get('CHATGPT_WEB_LOCK_FD')
 lock = os.fdopen(os.dup(int(inherited_lock)), 'a') if inherited_lock else (ROOT/'.logs/instance.lock').open('a')
@@ -31,8 +34,10 @@ with archive.open('rb') as f:
         if marker not in preload:
             raise SystemExit(f'Unsupported App: missing preload marker {marker}')
     original_main = package['main']
+    browser_html = read('webview/index.html')
     package['main'] = '.vite/build/web-entry.cjs'
     additions = {
+        '.vite/build/web-original.html': browser_html,
         'package.json': json.dumps(package, indent=2).encode(),
         '.vite/build/preload.js': (preload + '''\n;require('electron').contextBridge.exposeInMainWorld('chatgptWebTransport', {
  send: value => require('electron').ipcRenderer.send('chatgpt-web:from-relay', value),
@@ -41,6 +46,12 @@ with archive.open('rb') as f:
 });\n''').encode(),
         '.vite/build/web-entry.cjs': f'require("./web-main.cjs");\nrequire("./{pathlib.PurePosixPath(original_main).name}");\n'.encode(),
     }
+    if host_renderer == 'minimal':
+        # Keep the original window URL and preload (trusted IPC sender). Only the
+        # unused host UI is removed; the browser still receives the original HTML.
+        additions['webview/index.html'] = b'''<!doctype html><html data-chatgpt-web-host="minimal"><head>
+<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'">
+<title>ChatGPT Web Host</title></head><body></body></html>'''
     for name in ['main.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
         additions['.vite/build/web-' + name] = (ROOT / 'bridge' / name).read_bytes()
     payload_size = archive.stat().st_size - base
@@ -89,7 +100,7 @@ with archive.open('rb') as f:
             dst.write(content)
     out.replace(RUNTIME / 'resources/app.asar')
 manifest = {'prepared_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'source': str(archive),
-    'app_version': package['version'], 'source_sha256': hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest(),
+    'app_version': package['version'], 'host_renderer': host_renderer, 'source_sha256': hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest(),
     'original_main': original_main, 'patch_files': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted([*(ROOT/'bridge').iterdir(), ROOT/'scripts/prepare.py', ROOT/'scripts/prepare-static.cjs', ROOT/'scripts/start.sh', ROOT/'scripts/bootstrap.py', ROOT/'scripts/proxy.sh', ROOT/'package-lock.json']) if p.is_file()}}
 (ROOT/'prepare-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
 with (ROOT/'.logs/prepare-history.jsonl').open('a') as log:

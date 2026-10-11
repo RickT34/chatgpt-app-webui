@@ -42,7 +42,11 @@ window.chatgptWebReady=(async()=>{
     sendWorkerMessageFromView:(...args)=>call('sendWorkerMessageFromView',...args),
     subscribeToWorkerMessages:(id,callback)=>{
       if(!workers.has(id)){workers.set(id,new Set());send({kind:'worker-subscribe',id});}
-      workers.get(id).add(callback);return()=>workers.get(id)?.delete(callback);
+      const callbacks=workers.get(id);callbacks.add(callback);
+      return()=>{
+        if(!callbacks.delete(callback)||callbacks.size||workers.get(id)!==callbacks)return;
+        workers.delete(id);if(ws.readyState===1)send({kind:'worker-unsubscribe',id});
+      };
     },
     getSharedObjectSnapshotValue:key=>shared[key],
     getSystemThemeVariant:()=>bootstrap.getSystemThemeVariant,

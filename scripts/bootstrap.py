@@ -214,6 +214,8 @@ def check_libraries(app):
 def needs_prepare(source):
     try:
         manifest = json.loads((ROOT / 'prepare-manifest.json').read_text())
+        if manifest.get('host_renderer') != os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal'):
+            return True
         if not (ROOT / '.runtime/ChatGPT').exists() or not (ROOT / '.runtime/resources/app.asar').exists():
             return True
         if manifest['source'] != str(source / 'resources/app.asar') or manifest['source_sha256'] != sha256(source / 'resources/app.asar'):
@@ -227,6 +229,8 @@ def needs_prepare(source):
 
 
 def main(arguments):
+    if os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal') not in ('minimal', 'full'):
+        raise RuntimeError('CHATGPT_WEB_HOST_RENDERER must be minimal or full')
     if platform.system() != 'Linux':
         raise RuntimeError('Only Linux is supported')
     architecture()

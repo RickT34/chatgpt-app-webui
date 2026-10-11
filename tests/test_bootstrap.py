@@ -18,6 +18,26 @@ spec.loader.exec_module(bootstrap)
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_host_renderer_selection_invalidates_prepared_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / '.runtime/resources').mkdir(parents=True)
+            (root / '.runtime/ChatGPT').touch()
+            (root / '.runtime/resources/app.asar').touch()
+            (root / 'bridge').mkdir()
+            source = root / 'source'
+            manifest = {'host_renderer': 'minimal', 'source': str(source / 'resources/app.asar'),
+                        'source_sha256': 'digest', 'patch_files': {}}
+            (root / 'prepare-manifest.json').write_text(json.dumps(manifest))
+            with patch.object(bootstrap, 'ROOT', root), patch.object(bootstrap, 'sha256', return_value='digest'):
+                with patch.dict(os.environ, {'CHATGPT_WEB_HOST_RENDERER': 'minimal'}):
+                    self.assertFalse(bootstrap.needs_prepare(source))
+                with patch.dict(os.environ, {'CHATGPT_WEB_HOST_RENDERER': 'full'}):
+                    self.assertTrue(bootstrap.needs_prepare(source))
+        with patch.dict(os.environ, {'CHATGPT_WEB_HOST_RENDERER': 'invalid'}):
+            with self.assertRaisesRegex(RuntimeError, 'minimal or full'):
+                bootstrap.main(['--check'])
+
     def test_architecture(self):
         self.assertEqual(bootstrap.architecture('x86_64'), ('x64', 'amd64'))
         self.assertEqual(bootstrap.architecture('aarch64'), ('arm64', 'arm64'))

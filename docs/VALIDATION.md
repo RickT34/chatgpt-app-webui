@@ -125,3 +125,21 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 该临时 profile 的一次宿主就绪时间约 1.255 秒，rendererReadyMs 为 1114。它仅表示桥接 snapshot 已可用，不表示已登录或浏览器首屏完成。临时进程/profile 已清理。
 - 本地响应管线微基准（4 个 app-initial/app-shared JS/CSS，Brotli，输出到 Writable sink）：旧路径首次处理约 256.78 ms，预压缩路径约 6.81 ms；后续正文请求均值约 23.97 → 3.46 ms；条件校验均值约 21.75 → 0.03 ms。旧路径模拟原来的读文件、JS 字符串检查、哈希和内存压缩缓存；不含 ASAR 读取差异、网络或浏览器，未控制 OS 文件缓存。不能把这些数字解释为页面首屏提速比例。
 - 按要求未进行 Docker 测试。浏览器冷缓存/热缓存首屏仍由使用者手动验收：正常重启后首次打开、再次打开，比较 Network 面板的传输与缓存命中以及 `window.chatgptWebStartup.timings`；确认实际登录/聊天页面出现、附件/PDF 可用，更新后获取新版本资源。
+
+## 2026-10-11 · 宿主内存优化验证
+
+- `npm test`：34 项通过；Python unittest：14 项通过。新增 worker 取消订阅/重新订阅、重复断线清理、端口关闭、minimal 专属 shared-object 清理/离线分块确认，以及宿主模式变更导致自动重新准备的回归。
+- `python3 scripts/smoke-memory.py` 在实际 App 26.930.21537 上完成 full/minimal 各两次运行。每次使用新的临时 Electron profile 和相同 headless/disable-gpu 参数；采集时后端仍使用本机配置。就绪后等待 5 秒采集空闲 PSS；协议检查结束再等待 5 秒采集 PSS。范围为宿主进程及其存活后代，包括后端和插件，不包含客户端浏览器。
+
+| 模式 | 轮次 | 空闲 PSS（MiB） | 协议检查后 PSS（MiB） | rendererReadyMs |
+| --- | --- | ---: | ---: | ---: |
+| full | 1 | 1835.60 | 1853.71 | 1017 |
+| full | 2 | 1817.25 | 1875.71 | 1038 |
+| minimal | 1 | 947.45 | 974.28 | 829 |
+| minimal | 2 | 957.72 | 983.58 | 828 |
+
+- 空闲平均 1826.43 → 952.59 MiB，降低约 48%；协议检查后平均 1864.71 → 978.93 MiB，降低约 47.5%。这是同一台机器的两轮短时进程树 PSS 对比，不是长期泄漏测试，也不代表浏览器连接后、已加载大量会话或模型任务运行中的总内存。
+- 每次均通过 smoke.cjs、smoke-native.cjs、smoke-static.cjs、smoke-pdf.cjs：原 preload 消息、128 项 App-host 服务及原生 startup.whenReady、浏览器 RPC 剪贴板适配、两条下载路径、资源认证/Range、版本缓存和 PDF Worker 字节/MIME/语法。
+- 直接检查 ASAR：minimal 宿主页不含 script/link；full 宿主页与原包逐字节一致；两种模式保留的浏览器 HTML 均与原包一致，浏览器静态资源版本相同。
+- 额外清理逻辑的单元测试通过；真实大消息中途断线和长时间重连循环仍未做压力测试。没有以强制 GC 或限制堆大小制造内存下降。
+- 未运行 Docker，未自动操作网页。手动验收仍需确认实际页面、发送消息与流式响应、切换会话、附件及断开后重新进入。若功能依赖宿主完整桌面生命周期，可按 OPERATIONS.md 切回 full。
