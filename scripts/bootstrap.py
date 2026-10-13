@@ -229,6 +229,8 @@ def needs_prepare(source):
 
 
 def main(arguments):
+    if os.environ.get('CHATGPT_WEB_LOG_LEVEL', 'normal') not in ('normal', 'debug'):
+        raise RuntimeError('CHATGPT_WEB_LOG_LEVEL must be normal or debug')
     if os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal') not in ('minimal', 'full'):
         raise RuntimeError('CHATGPT_WEB_HOST_RENDERER must be minimal or full')
     if platform.system() != 'Linux':
@@ -277,12 +279,13 @@ def main(arguments):
     os.environ.setdefault('CHATGPT_WEB_PORT', '18765')
     os.set_inheritable(lock.fileno(), True)
     binary = str(ROOT / '.runtime/ChatGPT')
-    os.execv(binary, [binary, '--user-data-dir=' + str(ROOT / '.profile'), *electron_args])
+    from runtime import run
+    return run([binary, '--user-data-dir=' + str(ROOT / '.profile'), *electron_args], lock.fileno())
 
 
 if __name__ == '__main__':
     try:
-        main(sys.argv[1:])
+        sys.exit(main(sys.argv[1:]))
     except (RuntimeError, OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f'chatgpt-webui: {error}', file=sys.stderr)
         sys.exit(1)

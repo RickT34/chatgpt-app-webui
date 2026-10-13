@@ -27,7 +27,7 @@ test('unsubscribe releases worker listeners; disconnect closes ports and minimal
    chatgptWebCodec:codec,chatgptWebTransport:{send(){},subscribe:fn=>{receive=fn;},getSnapshot:()=>({})},
    addEventListener(){},postMessage(){},location:{origin:'app://-'}};
   class Channel{constructor(){this.port1={close(){closed++;}};this.port2={};}}
-  new Function('window','MessageChannel','('+fs.readFileSync('bridge/relay.js','utf8')+')()')(window,Channel);
+  await new Function('window','MessageChannel','createHost','return ('+fs.readFileSync('bridge/relay.js','utf8')+')(createHost)')(window,Channel,()=>({ready:Promise.resolve(),attach:async()=>()=>{}}));
   const send=message=>receive(codec.pack(message));
   await send({kind:'worker-subscribe',id:'one'});await send({kind:'worker-subscribe',id:'one'});
   await send({kind:'worker-unsubscribe',id:'one'});await send({kind:'worker-unsubscribe',id:'one'});assert.equal(stopped,1);

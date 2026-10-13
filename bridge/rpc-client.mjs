@@ -1,4 +1,53 @@
 import {newMessagePortRpcSession,RpcTarget,RpcStub} from './capnweb.js';
+export class HttpFetch extends RpcTarget {
+ constructor(native){super();this.native=native.dup();this.requests=new Map();}
+ async fetch(id,request,onUploadProgress){
+  if(!this.native)throw Error('App HTTP connection closed');
+  if(this.requests.has(id))throw Error('HTTP request already active');
+  const call=this.native.fetch(id,request,onUploadProgress);
+  let result,reader,controller,rejectCanceled,released=false;
+  const canceled=new Promise((_,reject)=>{rejectCanceled=reject;});
+  const release=()=>{
+   if(released)return;released=true;this.requests.delete(id);
+   reader?.releaseLock();result?.[Symbol.dispose]?.();call[Symbol.dispose]();
+  };
+  const state={close:reason=>{
+   if(released)return;
+   rejectCanceled(reason);controller?.error(reason);
+   if(reader)void reader.cancel(reason).catch(()=>{});
+   release();
+  }};
+  this.requests.set(id,state);
+  try{
+   result=await Promise.race([call,canceled]);
+   // A service stub cannot transparently forward an owned Response/stream
+   // through a second capnweb session. Re-export a locally owned stream, and
+   // retain the upstream result until EOF, cancellation, error or disconnect.
+   if(!result.response?.body){const value={...result};release();return value;}
+   const response=result.response;reader=response.body.getReader();
+   const body=new ReadableStream({
+    start(value){controller=value;},
+    async pull(value){
+     try{const chunk=await reader.read();if(chunk.done){value.close();release();}else value.enqueue(chunk.value);}
+     catch(error){if(!released){value.error(error);release();}}
+    },
+    async cancel(reason){try{await reader.cancel(reason);}finally{release();}}
+   },{highWaterMark:0});
+   return {...result,response:new Response(body,{status:response.status,statusText:response.statusText,headers:response.headers})};
+  }catch(error){release();throw error;}
+ }
+ async cancel(id){
+  if(!this.native)return;
+  const call=this.native.cancel(id);
+  this.requests.get(id)?.close(new DOMException('HTTP request canceled','AbortError'));
+  try{return await call;}finally{call[Symbol.dispose]();}
+ }
+ [Symbol.dispose](){
+  if(!this.native)return;
+  for(const id of this.requests.keys())void this.cancel(id).catch(()=>{});
+  this.native[Symbol.dispose]();this.native=null;
+ }
+}
 // Two RPC sessions preserve callbacks and service references while adapting
 // desktop clipboard and window startup services. No dependency on private export-table IDs.
 export function adaptAppHost(uiPort,clipboard,{onPhase=()=>{}}={}){
@@ -16,55 +65,6 @@ export function adaptAppHost(uiPort,clipboard,{onPhase=()=>{}}={}){
   async isSentryEnabled(){return this.native.isSentryEnabled();}
   async reach(phase){onPhase(phase);return this.native.reach(phase);}
   [Symbol.dispose](){this.native[Symbol.dispose]();}
- }
- class HttpFetch extends RpcTarget {
-  constructor(native){super();this.native=native.dup();this.requests=new Map();}
-  async fetch(id,request,onUploadProgress){
-   if(!this.native)throw Error('App HTTP connection closed');
-   if(this.requests.has(id))throw Error('HTTP request already active');
-   const call=this.native.fetch(id,request,onUploadProgress);
-   let result,reader,controller,rejectCanceled,released=false;
-   const canceled=new Promise((_,reject)=>{rejectCanceled=reject;});
-   const release=()=>{
-    if(released)return;released=true;this.requests.delete(id);
-    reader?.releaseLock();result?.[Symbol.dispose]?.();call[Symbol.dispose]();
-   };
-   const state={close:reason=>{
-    if(released)return;
-    rejectCanceled(reason);controller?.error(reason);
-    if(reader)void reader.cancel(reason).catch(()=>{});
-    release();
-   }};
-   this.requests.set(id,state);
-   try{
-    result=await Promise.race([call,canceled]);
-    // A service stub cannot transparently forward an owned Response/stream
-    // through a second capnweb session. Re-export a locally owned stream, and
-    // retain the upstream result until EOF, cancellation, error or disconnect.
-    if(!result.response?.body){const value={...result};release();return value;}
-    const response=result.response;reader=response.body.getReader();
-    const body=new ReadableStream({
-     start(value){controller=value;},
-     async pull(value){
-      try{const chunk=await reader.read();if(chunk.done){value.close();release();}else value.enqueue(chunk.value);}
-      catch(error){if(!released){value.error(error);release();}}
-     },
-     async cancel(reason){try{await reader.cancel(reason);}finally{release();}}
-    },{highWaterMark:0});
-    return {...result,response:new Response(body,{status:response.status,statusText:response.statusText,headers:response.headers})};
-   }catch(error){release();throw error;}
-  }
-  async cancel(id){
-   if(!this.native)return;
-   const call=this.native.cancel(id);
-   this.requests.get(id)?.close(new DOMException('HTTP request canceled','AbortError'));
-   try{return await call;}finally{call[Symbol.dispose]();}
-  }
-  [Symbol.dispose](){
-   if(!this.native)return;
-   for(const id of this.requests.keys())void this.cancel(id).catch(()=>{});
-   this.native[Symbol.dispose]();this.native=null;
-  }
  }
  class View extends RpcTarget {get services(){return ui.services;}}
  const host=newMessagePortRpcSession(network.port1,new View());

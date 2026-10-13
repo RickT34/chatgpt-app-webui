@@ -189,3 +189,13 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 覆盖 204 无正文、错误结果及抛出异常；响应头前取消使调用方失败，迟到响应释放；按原 App 正文包装器的完成逻辑转发 cancel；正文错误导致读取失败。
 - 覆盖关闭适配器时终止活动读取、宿主侧 RPC 会话关闭后释放服务，以及取消一个并发请求不会中断另一个。
 - 原剪贴板、Startup 与双向回调测试继续通过。本次按用户要求不进行浏览器、真实账号会话或 Docker 测试；没有以协议回归通过代替用户现场首屏验收。
+
+## 2026-10-13 · 预热与日志改造验证
+
+- `npm test`：46 项通过；Python unittest：18 项通过。新增预热/三次客户端会话复用、活动回调路由、状态快照补发、三层 RPC 中流式响应、原生连接故障提示、日志去重/轮转/权限、SIGTERM 转发和单实例锁释放验证。
+- 真实 App 26.1007.21434 使用独立临时 Electron profile 和本机随机端口运行 `python3 scripts/smoke-warm-host.py`。四次协议连接完成后 status 为 browserConnections=4、nativeHostConnections=1、persistentHost=true；每次取服务及 appInfo 约 19/14/13/10 ms。服务在浏览器连接前预热完成。
+- 改造前同一协议检查为 23/16/11/11 ms，四次连接阶段宿主进程树累计 CPU 约 0.10 秒；最终版本约 0.06 秒。此工作负载很小，差异不能外推为真实网页或低配服务器的首屏提速比例。最关键的已验证行为是后续连接不再重建原生 AppHost，而不是这些毫秒数。
+- 同一测试中继续通过真实 App 的客户端剪贴板替换、workspaceFiles.saveCopy、legacy save-file、下载字节和资源认证/Range/CSP 检查。前一个基线记录出现 4 次关闭连接后的 AppView 注册失败；复用连接后该记录为 0。
+- 对本次真实原生输出应用默认日志规则，40 行收敛为 4 行状态输出；原文不丢弃，详细日志仍可查看。保留可处理网络/配置错误及异常退出提示。没有把 MaxListenersExceededWarning 隐藏后当作“已证明不存在泄漏”。
+- 本机 nginx/systemd 实例未修改。`systemd-analyze --user verify deploy/chatgpt-web.service` 通过，仅校验模板，没有安装或 enable。没有测试 Docker 或自动操作真实网页，目标服务器完整首屏仍由使用者验收。
+- 测试报告：`.logs/warm-baseline.json`、`.logs/warm-final.json`；精简输出示例：`.logs/normal-console-preview.txt`。测试子进程及临时 profile 已关闭。

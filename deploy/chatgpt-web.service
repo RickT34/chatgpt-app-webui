@@ -1,0 +1,20 @@
+# Optional systemd --user unit. Set WorkingDirectory to your checkout and put
+# existing origin/auth/title settings in ~/.config/chatgpt-web.env (mode 600).
+[Unit]
+Description=Persistent ChatGPT Web host
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/chatgpt-web
+Environment=CHATGPT_WEB_HOST_RENDERER=minimal
+Environment=CHATGPT_WEB_LOG_LEVEL=normal
+EnvironmentFile=-%h/.config/chatgpt-web.env
+ExecStart=/bin/sh scripts/start.sh --ozone-platform=headless --disable-gpu
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

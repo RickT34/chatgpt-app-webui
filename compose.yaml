@@ -11,6 +11,7 @@ services:
       CHATGPT_WEB_ORIGIN: ${CHATGPT_WEB_ORIGIN:-http://127.0.0.1:18765}
       CHATGPT_WEB_AUTH: ${CHATGPT_WEB_AUTH:-token}
       CHATGPT_WEB_TITLE: ${CHATGPT_WEB_TITLE:-ChatGPT Web}
+      CHATGPT_WEB_LOG_LEVEL: ${CHATGPT_WEB_LOG_LEVEL:-normal}
       # Bare entries forward exported variables only; absent != empty token/proxy.
       CHATGPT_WEB_ACCESS_TOKEN:
       CHATGPT_WEB_PROXY:

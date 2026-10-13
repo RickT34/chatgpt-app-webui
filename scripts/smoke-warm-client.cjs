@@ -1,0 +1,30 @@
+'use strict';
+// Repeated browser-protocol connections, without UI automation or model calls.
+const fs=require('node:fs'),{once}=require('node:events');
+const {WebSocket}=require('ws'),codec=require('../bridge/codec.js');
+async function main(){
+ const login=fs.readFileSync('.logs/access-url','utf8').trim(),base=new URL(login).origin;
+ const auth=await fetch(login,{redirect:'manual'}),cookie=(auth.headers.get('set-cookie')||'').split(';')[0];
+ const {newMessagePortRpcSession}=await import('capnweb');
+ const measurements=[];
+ for(let i=0;i<4;i++){
+  const ws=new WebSocket(base.replace(/^http/,'ws')+'/bridge/socket',{headers:{cookie,origin:base}});
+  await once(ws,'open');const started=performance.now();
+  const {port1,port2}=new MessageChannel();
+  const root=newMessagePortRpcSession(port1,{services:{downloads:{stateChanged(){}},appUpdates:{stateChanged(){}},clientCoordination:{}}});
+  ws.on('message',data=>{const m=codec.unpack(data.toString());if(m.kind==='port'&&m.id===1)port2.postMessage(m.value);});
+  port2.onmessage=e=>ws.send(codec.pack({kind:'port',id:1,value:e.data}));
+  ws.send(codec.pack({kind:'port-open',id:1}));
+  try{
+   const services=await root.services;
+   await services.startup.whenReady();const info=await services.appInfo.get();
+   measurements.push({connection:i+1,readyMs:Math.round(performance.now()-started),version:info.version,services:Object.keys(services).length});
+   services[Symbol.dispose]();
+  }finally{root[Symbol.dispose]();port1.close();port2.close();ws.close();await once(ws,'close');}
+ }
+ const status=await (await fetch(base+'/bridge/status',{headers:{cookie}})).json();
+ if(status.persistentHost&&status.nativeHostConnections!==1)throw Error('Native App-host was recreated');
+ console.log(JSON.stringify({measurements,status}));
+}
+const timer=setTimeout(()=>{console.error('Repeated connection test timed out');process.exit(1);},40000);timer.unref();
+main().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>clearTimeout(timer));

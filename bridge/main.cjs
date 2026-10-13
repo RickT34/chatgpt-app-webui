@@ -16,6 +16,8 @@ let relayContentsId = null;
 let snapshot = null;
 let rendererState = 'starting';
 let client = null;
+let browserConnections=0,nativeHostConnections=0;
+ipcMain.on('codex_desktop:connect-app-host',event=>{if(event.sender.id===relayContentsId)nativeHostConnections++;});
 const folderPicker=require('./web-folders.cjs')({send:message=>client?.send(codec.pack(message))});
 const uploads=require('./web-uploads.cjs')(path.join(process.env.CHATGPT_WEB_ROOT,'.uploads'));
 const {resourcePath,serveFile}=require('./web-files.cjs');
@@ -72,7 +74,7 @@ const server = http.createServer(async(req,res)=>{
     return;
   }
   if(u.pathname==='/bridge/bootstrap') return json(res,snapshot?200:503,snapshot || {error:'App renderer is not ready'});
-  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,hostRenderer,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
+  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,hostRenderer,persistentHost:hostRenderer==='minimal',browserConnections,nativeHostConnections,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
   if(!['GET','HEAD'].includes(req.method)) {res.writeHead(405);return res.end();}
   try {
     const versioned=u.pathname.startsWith(staticPrefix);
@@ -89,6 +91,7 @@ server.on('upgrade',(req,socket,head)=>{
   if(u.pathname!=='/bridge/socket' || !authorized(req) || !access.allowsWebSocket(req)) {socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');return;}
   if(client) {socket.end('HTTP/1.1 409 Conflict\r\n\r\n');return;}
   wss.handleUpgrade(req,socket,head,ws=>{
+    browserConnections++;
     client=ws;heartbeat(ws,{onTick:()=>ws.send(codec.pack({kind:'heartbeat'}))});
     ws.on('message',async data=>{
       let message;try{message=codec.unpack(data.toString());}catch{ws.close(1007,'Invalid message');return;}
@@ -117,10 +120,17 @@ const relayTargets = new Set();
 ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
   if(event.sender.id!==relayContentsId || !relayTargets.has(event.sender.id))return;
   let message;try{message=JSON.parse(data);}catch{return;}
+  if(message.kind==='host-state'){rendererState='warming';console.log('[chatgpt-web] 正在预热宿主服务…');return;}
+  if(message.kind==='host-error'){
+    peer=null;snapshot=null;rendererState='host connection failed';rendererReadyMs=null;
+    console.error('[chatgpt-web] 宿主服务连接失效，请重启服务。',codec.decode(message.value));
+    client?.close(1012,'App host connection failed');return;
+  }
   if(message.kind==='snapshot'){
     const wc=event.sender;
     peer={readyState:1,send:data=>{if(!wc.isDestroyed())wc.send('chatgpt-web:to-relay',data);},close:()=>{}};
-    snapshot=message.value;rendererState='ready';rendererReadyMs=Math.round(performance.now()-hostStartedAt);console.log('[chatgpt-web] renderer bridge ready');return;
+    snapshot=message.value;rendererState='ready';rendererReadyMs=Math.round(performance.now()-hostStartedAt);
+    console.log(hostRenderer==='minimal'?'[chatgpt-web] 宿主已就绪，后续浏览器连接将复用服务。':'[chatgpt-web] 宿主界面已就绪（full 模式）。');return;
   }
   if(message.kind==='event' && snapshot){
     const eventValue=codec.decode(message.value);

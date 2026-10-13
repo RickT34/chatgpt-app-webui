@@ -4,7 +4,7 @@
   let timer;
   return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>{const error=Error(message);error.name='TimeoutError';reject(error);onTimeout();},ms);})]).finally(()=>clearTimeout(timer));
  }
- async function bootstrap(fetcher,{timeout=60000,requestTimeout=10000,retry=1000}={}){
+ async function bootstrap(fetcher,{timeout=180000,requestTimeout=10000,retry=1000}={}){
   const end=Date.now()+timeout;let lastError=null;
   while(Date.now()<end){
    const controller=new AbortController();

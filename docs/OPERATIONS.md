@@ -217,3 +217,16 @@
 - cancel 按原请求 ID 转发，并终止本地等待/读取；关闭适配器时清理活动请求与服务引用。沿用原 App 的消费约定：Cxn 包装器在正文完成/取消时调用 httpFetch.cancel 并 dispose 返回结果。关闭 WebSocket 时原 relay 仍负责关闭宿主侧 RPC 端口。
 - 没有禁用 Statsig、修改配置值或提高其超时，也没有修改 capnweb 依赖版本。运行旧版本时若没有 httpFetch 服务，不安装这个适配器。
 - 按原命令重启服务并刷新页面即可自动生成新副本及静态资源版本。实际 Statsig 请求与首屏时间由使用者验证；若仍出现超时，需要继续检查宿主到上游的网络路径。
+
+## 2026-10-13 · 宿主预热、跨浏览器连接复用与启动日志
+
+- 默认 minimal 模式现在在服务器启动阶段建立一个原生 App-host RPC 会话，取得服务集合，等待原生 startup.whenReady 并读取 appInfo，完成后才发布 bootstrap snapshot。浏览器未连接时服务集合也保留；后续连接借用同一集合，不再创建和注册新的原生 AppHost。
+- 每个浏览器仍有独立 RPC 会话、httpFetch 请求和回调。关闭浏览器会释放这些对象，保留宿主连接与服务。宿主回调路由到当前连接，下载/更新的最新状态以有界快照补发；不重放操作、不代替用户审批。原生连接失效会撤销 ready 状态并明确提示重启。
+- `full` 仍是原桌面生命周期兼容模式，沿用旧连接路径。若之前设置了 `CHATGPT_WEB_HOST_RENDERER=full`，要使用本次预热复用请改成 `minimal` 或删除该覆盖值。
+- `/bridge/status` 增加 persistentHost、browserConnections、nativeHostConnections。新启动的 minimal 服务在多次浏览器连接后，browserConnections 增加而 nativeHostConnections 应保持 1；原生 renderer 重载/服务重启属于新的生命周期。首次冷启动 bootstrap 等待上限为 180 秒，正常热连接不额外等待该期限。
+- 这复用了宿主服务初始化，不是把浏览器 React/JavaScript 实例跨设备保存。浏览器仍需执行界面代码、读取当前业务状态；完整首屏性能需要在目标服务器验收。
+- 启动输出默认 `CHATGPT_WEB_LOG_LEVEL=normal`：终端显示启动、预热、就绪、访问地址，以及去重后的可处理错误；可选远程控制未登录、GCM 注册和运行时弃用/监听器提示保留在详细日志。未知运行错误和异常退出仍提示，不按 failed 字样一律丢弃。
+- 原始 stdout/stderr 保存到 `.logs/host.log`，权限 0600，20 MiB 轮转，保留 3 个历史文件。`CHATGPT_WEB_LOG_LEVEL=debug` 同时向终端输出原始日志；排障时可查看该文件。原始日志可能包含账号/会话信息及登录链接，不应未经脱敏对外发布。
+- 启动器保持单实例锁、子进程退出码，并将 Ctrl-C/SIGTERM 传给自己启动的进程组。没有启用新服务，也没有修改机器上的 nginx 或 systemd 配置。
+- 若需要脱离终端常驻，可使用 `deploy/chatgpt-web.service` 用户服务模板：把 WorkingDirectory 改为实际仓库路径，将原域名/认证/标题等变量写入 `~/.config/chatgpt-web.env`（权限 600），首次先手动运行 `scripts/start.sh --setup-only` 完成准备，然后安装到 `~/.config/systemd/user/` 并执行 `systemctl --user daemon-reload`、`systemctl --user enable --now chatgpt-web.service`。用户服务无需登录就随机器启动还取决于该用户的 linger 设置，由服务器管理员按部署方式配置。已有 Docker 等进程托管可继续使用。
+- 生效：按原配置重新启动一次。若回退代码，同样停止服务后重启，准备流程会根据补丁哈希重新生成副本。
