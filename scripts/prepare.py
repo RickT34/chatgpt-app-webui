@@ -50,8 +50,12 @@ with archive.open('rb') as f:
         # Keep the original window URL and preload (trusted IPC sender). Only the
         # unused host UI is removed; the browser still receives the original HTML.
         additions['webview/index.html'] = b'''<!doctype html><html data-chatgpt-web-host="minimal"><head>
-<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'">
+<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'">
 <title>ChatGPT Web Host</title></head><body></body></html>'''
+    # Small modules used only by the resident native relay, never the full UI.
+    additions['webview/web-capnweb.js'] = (ROOT/'node_modules/capnweb/dist/index.js').read_bytes()
+    for name in ['host.mjs', 'rpc-client.mjs']:
+        additions['webview/web-' + name] = (ROOT/'bridge'/name).read_text().replace("'./capnweb.js'", "'./web-capnweb.js'").replace("'./rpc-client.mjs'", "'./web-rpc-client.mjs'").encode()
     for name in ['main.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
         additions['.vite/build/web-' + name] = (ROOT / 'bridge' / name).read_bytes()
     payload_size = archive.stat().st_size - base
@@ -101,9 +105,12 @@ with archive.open('rb') as f:
     out.replace(RUNTIME / 'resources/app.asar')
 manifest = {'prepared_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'source': str(archive),
     'app_version': package['version'], 'host_renderer': host_renderer, 'source_sha256': hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest(),
-    'original_main': original_main, 'patch_files': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted([*(ROOT/'bridge').iterdir(), ROOT/'scripts/prepare.py', ROOT/'scripts/prepare-static.cjs', ROOT/'scripts/start.sh', ROOT/'scripts/bootstrap.py', ROOT/'scripts/proxy.sh', ROOT/'package-lock.json']) if p.is_file()}}
+    'original_main': original_main, 'patch_files': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted([*(ROOT/'bridge').iterdir(), ROOT/'scripts/prepare.py', ROOT/'scripts/prepare-static.cjs', ROOT/'scripts/start.sh', ROOT/'scripts/bootstrap.py', ROOT/'scripts/runtime.py', ROOT/'scripts/proxy.sh', ROOT/'package-lock.json']) if p.is_file()}}
 (ROOT/'prepare-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
 with (ROOT/'.logs/prepare-history.jsonl').open('a') as log:
     log.write(json.dumps(manifest)+'\n')
-print(json.dumps(manifest, indent=2))
+if os.environ.get('CHATGPT_WEB_LOG_LEVEL') == 'debug':
+    print(json.dumps(manifest, indent=2))
+else:
+    print(f'Prepared App {package["version"]} ({host_renderer}); manifest: {ROOT/"prepare-manifest.json"}', flush=True)
 subprocess.run(['node', str(ROOT/'scripts/prepare-static.cjs')], check=True)
