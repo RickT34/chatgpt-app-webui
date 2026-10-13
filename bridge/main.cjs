@@ -45,7 +45,7 @@ const staticPrefix=`/static/${staticManifest.version}/`;
 const {heartbeat,watchRenderer}=require('./web-lifecycle.cjs');
 const startupScript=fs.readFileSync(path.join(__dirname,'web-startup.js'),'utf8');
 const page=Buffer.from(require('./web-page.cjs').renderPage(originalHtml,{startup:startupScript,
- version:staticManifest.version,websocketOrigin:access.websocketOrigin,preloads:staticManifest.preloads}));
+ version:staticManifest.version,websocketOrigin:access.websocketOrigin,preloads:staticManifest.preloads,title:process.env.CHATGPT_WEB_TITLE}));
 function json(res,status,value){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(value));}
 const server = http.createServer(async(req,res)=>{
   res.setHeader('Referrer-Policy','no-referrer');

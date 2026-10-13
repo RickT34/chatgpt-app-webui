@@ -82,7 +82,7 @@ async function main(){
  const archive=openArchive(prepared.source);
  try{
   const html=archive.read('index.html').toString();
-  const bridge=new Map(['codec.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));
+  const bridge=new Map(['identity.js','favicon.svg','codec.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));
   bridge.set('bridge/capnweb.js',()=>fs.readFileSync(path.join(root,'node_modules/capnweb/dist/index.js')));
   bridge.set('bridge/entry.js',()=>Buffer.from(entryScript(html)));
   const files=[...archive.files.keys(),...bridge.keys()].filter(name=>name!=='index.html');

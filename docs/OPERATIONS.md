@@ -201,3 +201,11 @@
 - 使用 http2 on，要求 nginx >= 1.25.1 且编译了 ngx_http_v2_module。更新实际站点时合并这些改动，保留原证书、域名和用户额外设置的 auth_basic 等认证指令；先 nginx -t，再由站点维护者 reload。仓库修改本身不会改变运行中的 nginx。
 - 响应头 X-WebUI-Upstream-Connect-Time 和 X-WebUI-Upstream-Header-Time 的单位是秒，分别来自 upstream_connect_time/upstream_header_time；失败或未转发的请求可能没有有效数值。连接时间高应检查 nginx 到宿主的连接路径；连接快但首字节慢应检查上游处理。两者都低而页面仍停顿时，继续看浏览器 Timing 的 Queueing/Stalled、下载阶段及 Performance 主线程，不能直接断言是宿主慢。
 - 可用 `node scripts/smoke-nginx.cjs` 在独立端口验证模板，不修改系统 nginx、不访问外部网站、不使用 Docker。测试需要本机 nginx（HTTP/2、TLS 模块）及 openssl，自动生成只供测试客户端信任的临时证书并清理测试进程/文件。
+
+## 2026-10-13 · 网页图标和自定义固定标题
+
+- 新增随项目提供的 SVG favicon：`bridge/favicon.svg`，经现有版本化静态资源路径提供，不访问外部图标服务。
+- 使用 `CHATGPT_WEB_TITLE` 配置浏览器标签标题，默认 `ChatGPT Web`；空字符串/全空白使用默认值，连续空白折叠为空格。标题按 HTML 文本/属性转义，不作为脚本执行。
+- 例如先 `export CHATGPT_WEB_TITLE='我的工作台'`，再执行原启动命令（保留原域名、认证等环境和 Electron 参数）。Compose 同样转发此变量。该配置对该服务的所有浏览器生效，不是每个浏览器各自的设置。
+- HTML 初始标题和后续标题保持一致；identity.js 在原界面前运行，监听 title 变化并恢复固定名称，进入或切换会话时不显示会话内容。应用内会话名称不受影响。
+- 修改标题后重启宿主并刷新网页生效；只修改标题不需要重新压缩静态资源。首次更新本补丁仍由原准备流程自动生成 identity.js 和图标缓存。移除该变量恢复默认标题。

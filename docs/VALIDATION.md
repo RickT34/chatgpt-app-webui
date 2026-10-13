@@ -174,3 +174,10 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 经 nginx 的 HTTP/1.1 大文件响应和六条并发 HTTP/2 流均完整收到同一份大于 4 MiB 的 gzip 响应，Content-Length、Content-Encoding 和内容哈希正确；ALPN 实际协商为 h2。
 - WebSocket 经相同配置完成 Upgrade 和双向消息回传。测试进程及临时配置清理；没有重载生产 nginx，没有做 Docker 测试。
 - 这是配置功能/传输完整性验证，不是用户公网环境的端到端时延基准，也未证明连接复用就是卡顿的唯一根因。实际站点部署后的时延仍需用响应头与浏览器 Timing 验证。
+
+## 2026-10-13 · 图标与固定标题验证
+
+- `npm test` 38 项通过；新增验证覆盖自定义中文标题、空白归一化、HTML/属性字符转义、替换文本中的 `$&`、默认值、图标版本地址及 identity.js 的执行顺序。
+- 用 `CHATGPT_WEB_TITLE=我的工作台` 启动本地原 App 页面：启动阶段、主页显示、打开已有“优化启动速度”会话后，浏览器实际 title 均为“我的工作台”，会话区域可见。未发送模型消息。
+- 实际 HTTP 获取 favicon：200、image/svg+xml，响应字节与项目 SVG 文件完全一致；页面 link 指向对应版本的本地图标。
+- 测试标签和临时本地宿主已关闭。未测试 Docker，也未改变用户的域名反向代理配置。
