@@ -9,10 +9,14 @@ function entryScript(html){
  const entry='../'+entryPath(html).replace(/^\//,'');
  return `try{await window.chatgptWebReady;const s=window.chatgptWebStartup;if(s.failed)throw Error('启动已中止');s.stage('下载并启动原界面');await s.wait(import(${JSON.stringify(entry)}),120000,'原界面模块加载超时');s.entryReady();}catch(e){window.chatgptWebStartup.fail(e);}`;
 }
-function renderPage(html,{startup,version,websocketOrigin,preloads=[]}){
+function renderPage(html,{startup,version,websocketOrigin,preloads=[],title='ChatGPT Web'}){
  const prefix=`/static/${version}`;
  const hash=require('node:crypto').createHash('sha256').update(startup).digest('base64');
- const scripts=['codec.js','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js'];
+ const scripts=['identity.js','codec.js','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js'];
+ const pageTitle=(String(title??'').replace(/\s+/g,' ').trim()||'ChatGPT Web')
+  .replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+ html=html.replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi,'')
+  .replace('</head>',()=>`<title>${pageTitle}</title><meta name="chatgpt-web-title" content="${pageTitle}"><link rel="icon" type="image/svg+xml" href="/bridge/favicon.svg"></head>`);
  // Explicit URLs preserve the root base used by the original router. Relative
  // imports inside versioned modules automatically inherit the same version.
  html=html.replace(/<script type="module" crossorigin src="[^"]+"><\/script>/,

@@ -85,3 +85,15 @@ test('HTML versions module graphs while preserving router base, CSP, and deferre
  assert(entryScript(html).includes('import("../assets/index.js")'));
  assert(entryScript(html).indexOf('await window.chatgptWebReady')<entryScript(html).indexOf('import('));
 }));
+
+test('page identity escapes custom text, normalizes whitespace, and versions the local icon',()=>{
+ const options={startup:'void 0;',version:'test-version',websocketOrigin:'ws://localhost'};
+ const custom='  我的   工作台 & <script>"$&</script>\n';
+ const page=renderPage(html.replace('</head>','<title>Old session title</title></head>'),{...options,title:custom});
+ assert.equal((page.match(/<title>/g)||[]).length,1);
+ assert(page.includes('<title>我的 工作台 &amp; &lt;script&gt;&quot;$&amp;&lt;/script&gt;</title>'));
+ assert(!page.includes('Old session title'));
+ assert(page.includes('href="/static/test-version/bridge/favicon.svg"'));
+ assert(page.indexOf('bridge/identity.js')<page.indexOf('bridge/client.js'));
+ assert(renderPage(html,{...options,title:' \n '}).includes('<title>ChatGPT Web</title>'));
+});
