@@ -7,7 +7,7 @@ window.chatgptWebReady=(async()=>{
   const adapter=startup.wait(import(chatgptWebRpcUrl),120000,'桥接模块下载超时。');
   adapter.catch(()=>{});
   startup.stage('等待宿主 App',65000);
-  const bootstrap=window.chatgptWebCodec.decode(await startup.bootstrap(fetch));
+  const bootstrap=window.chatgptWebCodec.decode(await startup.bootstrapReady);
   if(startup.failed)throw Error('启动已中止，请重试。');
   startup.stage('连接宿主机',20000);
   const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/bridge/socket`);

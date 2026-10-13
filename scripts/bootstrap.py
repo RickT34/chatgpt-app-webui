@@ -17,10 +17,10 @@ import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_VERSION = '26.930.21537'
+APP_VERSION = '26.1007.21434'
 APP_HASHES = {
-    'amd64': '60fdb6d895d776f8831ff35a783de04cdbfa280f0f3d972584315f98e57aa256',
-    'arm64': 'f646c01eebd37a49317ef62aede877c229daeee4f1cab9ef3eb61a1cf6429564',
+    'amd64': '276b5341c3d74b261d3ad52106f7fa7edde06841e4767fe2a40cb54099b1f3ed',
+    'arm64': '55fae1e3fb1d6069a90620e9e70737dcf8bf2255604d157e282cc6748a1baf49',
 }
 DEB_BASE = 'https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/'
 NODE_BASE = 'https://nodejs.org/dist/latest-v22.x/'

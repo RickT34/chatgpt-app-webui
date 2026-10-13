@@ -170,3 +170,26 @@
 - 行为边界：宿主不再自行运行完整桌面界面及其 UI 生命周期；renderer_ready、first_content_visible、background_ready 仍由浏览器原界面实际触发。依赖这些阶段的后台工作可能要等浏览器首次初始化；需要原桌面初始化行为时使用 full。宿主自身不会提供原桌面聊天界面。
 - 内存复现：停止 Web 宿主后运行 `python3 scripts/smoke-memory.py`。脚本为 full/minimal 各启动两次临时 Electron profile，采集进程树 PSS，执行只读服务查询及临时文件下载检查，退出后清理测试进程/profile 并恢复调用者环境的准备模式。它会重建副本，不能与正在运行的 Web 宿主并行使用。
 - 该脚本仍使用本机原后端配置，临时 Electron profile 不等于隔离所有 Codex 全局配置或插件。测试不发起模型任务、不操作网页、不运行 Docker；结果在 `.logs/memory-check.json`，原生日志在 `.logs/memory-*.log`，均不纳入 Git。
+
+## 2026-10-12 · 更新官方稳定版至 26.1007.21434
+
+- 从官方稳定软件源 `https://persistent.oaistatic.com/codex-app-prod/linux/deb/dists/stable/main/binary-amd64/Packages` 及对应 `binary-arm64/Packages` 核对当前版本，更新 bootstrap.py 的固定版本与两种架构 SHA-256。
+- amd64：`276b5341c3d74b261d3ad52106f7fa7edde06841e4767fe2a40cb54099b1f3ed`；arm64：`55fae1e3fb1d6069a90620e9e70737dcf8bf2255604d157e282cc6748a1baf49`。本机只下载、校验和解包 amd64；不将读取 ARM64 校验值视作 ARM64 运行验证。
+- 新包保存在 `.deps/chatgpt-26.1007.21434-amd64`，保留旧 `.deps/chatgpt-26.930.21537-amd64`。未修改系统安装包和用户 profile，未启动账号会话。
+- 已按现有 run.sh 的访问源 `https://archchat.rickt.cn` 与无令牌配置执行 `--setup-only`，生成 minimal 副本和新版静态资源缓存。使用者继续执行 `sh run.sh` 即可启动新版。
+- 回退旧版：停止 Web 宿主后，在项目目录执行 `CHATGPT_APP_DIR="$PWD/.deps/chatgpt-26.930.21537-amd64/usr/lib/chatgpt" sh run.sh`；脚本按原包重新准备。该操作仅回退二进制/适配副本，不恢复新版实际运行后可能迁移的数据。
+- 新版网页兼容性由使用者测试；本次不进行浏览器交互、原生会话运行或 Docker 验证。若出现问题，保留启动阶段提示和相关错误，以便针对新版接口继续适配。
+
+## 2026-10-12 · 等待宿主阶段的超时处理
+
+- 用户报告停在“正在等待宿主 App”，随后显示 `This operation was aborted`。该阶段尚未进入 WebSocket/原界面初始化，对应 `/bridge/bootstrap` 请求。
+- 修正 wait 的超时竞争：先以明确的 TimeoutError 拒绝等待，再取消底层请求，避免 AbortController 的通用 AbortError 抢先覆盖实际超时原因。
+- 内联 startup 脚本立即发出 bootstrap 请求，早于 deferred 桥接脚本及后续大模块预加载；浏览器显式使用 same-origin 凭据和 high 请求优先级。client 复用同一个 Promise，不重复查询。
+- 请求与读取响应体均受单次 10 秒和总计 60 秒期限约束。503、502/504、网络失败及请求中止在总期限内重试；401/403 立即提示重新验证反向代理或服务登录，其他 HTTP 错误不盲目重试。
+- 本机接口正常不代表公网已登录浏览器链路正常；不关闭 nginx 认证、不绕过 TLS，不将 Statsig/GCM 日志单独认定为网页失败根因。
+
+## 2026-10-12 · 本地浏览器验收与资源错误定位
+
+- 用户授权直接启动本地页面测试。使用 `CHATGPT_WEB_AUTH=none CHATGPT_WEB_ORIGIN=http://127.0.0.1:18765 sh scripts/start.sh --ozone-platform=headless --disable-gpu`，不调用 run.sh，不经过域名/反向代理。
+- 资源 error 事件现在标明失败 SCRIPT/LINK 的 pathname，并将错误归入“下载页面资源”，避免沿用之前的“等待宿主”阶段而误判。路径不包含 URL 用户名、密码或查询参数。
+- 本地测试服务的 Origin 是 localhost 地址；若恢复域名访问，需要先停止该服务，再用原 run.sh 启动，不能直接用公网域名访问 Origin 不匹配的测试服务。
