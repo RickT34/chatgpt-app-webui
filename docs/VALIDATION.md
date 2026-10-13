@@ -166,3 +166,11 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - `npm test` 37 项通过，新增回归验证具体资源路径、阶段归类及 URL 凭据/查询参数不泄漏。
 - 未复现用户公网页面的“页面资源下载失败”，不能宣称其根因已修复。若再次出现，应使用新提示中的具体失败路径继续检查。未进行 Docker 测试。
 - 浏览器控制台仍有 Sentry Electron 连接警告和 Statsig 请求的 `owned payload shouldn't contain raw ReadableStreams` RPC 错误；本次它们未阻止主页显示。完整流式 RPC 功能兼容性仍未验证，不把首屏成功当作全部功能通过。
+
+## 2026-10-13 · nginx 模板实测
+
+- `node scripts/smoke-nginx.cjs` 在本机 nginx 1.30.5 上通过：使用模板派生的临时配置、独立回环端口和自签测试证书，客户端使用 CA 校验，未关闭证书验证。
+- nginx -t 通过；六次顺序 HTTP/1.1 请求复用同一个上游 socket，未向上游发送 Connection: close；两个上游时延响应头正常。
+- 经 nginx 的 HTTP/1.1 大文件响应和六条并发 HTTP/2 流均完整收到同一份大于 4 MiB 的 gzip 响应，Content-Length、Content-Encoding 和内容哈希正确；ALPN 实际协商为 h2。
+- WebSocket 经相同配置完成 Upgrade 和双向消息回传。测试进程及临时配置清理；没有重载生产 nginx，没有做 Docker 测试。
+- 这是配置功能/传输完整性验证，不是用户公网环境的端到端时延基准，也未证明连接复用就是卡顿的唯一根因。实际站点部署后的时延仍需用响应头与浏览器 Timing 验证。

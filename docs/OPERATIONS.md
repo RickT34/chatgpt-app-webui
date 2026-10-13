@@ -193,3 +193,11 @@
 - 用户授权直接启动本地页面测试。使用 `CHATGPT_WEB_AUTH=none CHATGPT_WEB_ORIGIN=http://127.0.0.1:18765 sh scripts/start.sh --ozone-platform=headless --disable-gpu`，不调用 run.sh，不经过域名/反向代理。
 - 资源 error 事件现在标明失败 SCRIPT/LINK 的 pathname，并将错误归入“下载页面资源”，避免沿用之前的“等待宿主”阶段而误判。路径不包含 URL 用户名、密码或查询参数。
 - 本地测试服务的 Origin 是 localhost 地址；若恢复域名访问，需要先停止该服务，再用原 run.sh 启动，不能直接用公网域名访问 Origin 不匹配的测试服务。
+
+## 2026-10-13 · nginx 连接复用与时延诊断
+
+- 用户确认使用 deploy/nginx.conf。原模板已设置 proxy_buffering off；没有证据把暂停下载归因于 nginx 响应缓冲。原模板的普通请求发送 Connection: close，且没有上游连接池或显式启用 HTTP/2。
+- 新模板定义 chatgpt_webui_backend 上游和 keepalive 16，普通请求清空 Connection 头，WebSocket 请求仍使用 upgrade；前端开启 HTTP/2，减少多模块加载的连接排队机会。保留原 Host、Origin、反代头、认证边界和不记录访问日志的策略。
+- 使用 http2 on，要求 nginx >= 1.25.1 且编译了 ngx_http_v2_module。更新实际站点时合并这些改动，保留原证书、域名和用户额外设置的 auth_basic 等认证指令；先 nginx -t，再由站点维护者 reload。仓库修改本身不会改变运行中的 nginx。
+- 响应头 X-WebUI-Upstream-Connect-Time 和 X-WebUI-Upstream-Header-Time 的单位是秒，分别来自 upstream_connect_time/upstream_header_time；失败或未转发的请求可能没有有效数值。连接时间高应检查 nginx 到宿主的连接路径；连接快但首字节慢应检查上游处理。两者都低而页面仍停顿时，继续看浏览器 Timing 的 Queueing/Stalled、下载阶段及 Performance 主线程，不能直接断言是宿主慢。
+- 可用 `node scripts/smoke-nginx.cjs` 在独立端口验证模板，不修改系统 nginx、不访问外部网站、不使用 Docker。测试需要本机 nginx（HTTP/2、TLS 模块）及 openssl，自动生成只供测试客户端信任的临时证书并清理测试进程/文件。
