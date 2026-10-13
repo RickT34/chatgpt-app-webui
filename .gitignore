@@ -23,3 +23,5 @@ node_modules/
 # Local Docker mounts and deployment overrides.
 compose.override.yaml
 compose.override.yml
+
+run.sh
