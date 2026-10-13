@@ -209,3 +209,11 @@
 - 例如先 `export CHATGPT_WEB_TITLE='我的工作台'`，再执行原启动命令（保留原域名、认证等环境和 Electron 参数）。Compose 同样转发此变量。该配置对该服务的所有浏览器生效，不是每个浏览器各自的设置。
 - HTML 初始标题和后续标题保持一致；identity.js 在原界面前运行，监听 title 变化并恢复固定名称，进入或切换会话时不显示会话内容。应用内会话名称不受影响。
 - 修改标题后重启宿主并刷新网页生效；只修改标题不需要重新压缩静态资源。首次更新本补丁仍由原准备流程自动生成 identity.js 和图标缓存。移除该变量恢复默认标题。
+
+## 2026-10-13 · httpFetch 流式 RPC 转发修复
+
+- 在 rpc-client.mjs 中为原 App 的 httpFetch 服务增加显式 RpcTarget，转发 fetch/cancel；其他服务继续使用既有路径。解决原服务 stub 跨两个 capnweb 会话直接转发 Response 时触发的 `owned payload shouldn't contain raw ReadableStreams`。
+- 返回带流的 Response 时逐块读取并重新导出本地 ReadableStream，保留 status/statusText/headers；不等待整个正文下载、不将正文整体缓存到内存。上游结果及 RPC 调用引用保留到 EOF、错误、取消或断线后释放。
+- cancel 按原请求 ID 转发，并终止本地等待/读取；关闭适配器时清理活动请求与服务引用。沿用原 App 的消费约定：Cxn 包装器在正文完成/取消时调用 httpFetch.cancel 并 dispose 返回结果。关闭 WebSocket 时原 relay 仍负责关闭宿主侧 RPC 端口。
+- 没有禁用 Statsig、修改配置值或提高其超时，也没有修改 capnweb 依赖版本。运行旧版本时若没有 httpFetch 服务，不安装这个适配器。
+- 按原命令重启服务并刷新页面即可自动生成新副本及静态资源版本。实际 Statsig 请求与首屏时间由使用者验证；若仍出现超时，需要继续检查宿主到上游的网络路径。
