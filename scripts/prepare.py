@@ -61,14 +61,24 @@ with archive.open('rb') as f:
         raise SystemExit(f'Unsupported App: expected one runtime validation module, found {runtime_patches}')
     additions['.vite/build/web-file-digest-cache.cjs'] = (ROOT/'bridge/file-digest-cache.cjs').read_bytes()
     if host_renderer == 'minimal':
+        # The resident browser host implements this original admission protocol.
+        # Fail preparation on incompatible upgrades instead of timing out later.
+        browser_protocol = [b'registerWebviewHostSession', b'registerWebviewHost',
+                            b'persist:codex-browser-app-route:', b'data-browser-sidebar-conversation-id',
+                            b'browser-sidebar-destroy-webview', b'browser-sidebar-webview-destroyed']
+        browser_sources = (read('.vite/build/' + name) for name in entry('.vite/build')['files']
+                           if name.startswith('main-') and name.endswith('.js'))
+        compatible = any(all(marker in source for marker in browser_protocol) for source in browser_sources)
+        if not compatible:
+            raise SystemExit('Unsupported App: native browser WebView protocol changed')
         # Keep the original window URL and preload (trusted IPC sender). Only the
         # unused host UI is removed; the browser still receives the original HTML.
         additions['webview/index.html'] = b'''<!doctype html><html data-chatgpt-web-host="minimal"><head>
-<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'">
+<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self' about:">
 <title>ChatGPT Web Host</title></head><body></body></html>'''
     # Small modules used only by the resident native relay, never the full UI.
     additions['webview/web-capnweb.js'] = (ROOT/'node_modules/capnweb/dist/index.js').read_bytes()
-    for name in ['host.mjs', 'rpc-client.mjs']:
+    for name in ['host.mjs', 'rpc-client.mjs', 'browser-host.mjs']:
         additions['webview/web-' + name] = (ROOT/'bridge'/name).read_text().replace("'./capnweb.js'", "'./web-capnweb.js'").replace("'./rpc-client.mjs'", "'./web-rpc-client.mjs'").encode()
     for name in ['main.cjs', 'bootstrap.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
         additions['.vite/build/web-' + name] = (ROOT / 'bridge' / name).read_bytes()

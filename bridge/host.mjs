@@ -3,7 +3,7 @@ import {HttpFetch} from './rpc-client.mjs';
 
 // One native App-host connection belongs to the host renderer's lifetime.
 // Browser connections only borrow services; reconnects never rebuild AppHost.
-export function createWarmHost(nativePort,{onBroken=()=>{}}={}){
+export function createWarmHost(nativePort,{onBroken=()=>{},adaptServices=()=>({})}={}){
  const clients=new Set(),latest=new Map();let active=null,closed=false;
  const notifications=new Set(['downloads.stateChanged','appUpdates.stateChanged']);
  const callbackService=name=>new Proxy(new RpcTarget(),{
@@ -41,16 +41,18 @@ export function createWarmHost(nativePort,{onBroken=()=>{}}={}){
   try{const value=await call;value?.[Symbol.dispose]?.();}
   finally{call[Symbol.dispose]();}
  };
+ let overrides={};
  const ready=services.then(async value=>{
   await warmRead(value.startup.whenReady());
   await warmRead(value.appInfo.get());
+  overrides=await adaptServices(value,RpcTarget);
  });
  ready.catch(()=>{});
  async function attach(port){
   await ready;
   if(closed)throw Error('Host connection closed');
   const source=await services,borrowed={};
-  for(const [key,value] of Object.entries(source))borrowed[key]=value?.dup?value.dup():value;
+  for(const [key,value] of Object.entries(source))borrowed[key]=Object.hasOwn(overrides,key)?overrides[key]:value?.dup?value.dup():value;
   const fetch=source.httpFetch?new HttpFetch(source.httpFetch):null;
   if(fetch){borrowed.httpFetch?.[Symbol.dispose]();borrowed.httpFetch=fetch;}
   const client={closed:false,viewServices:null};

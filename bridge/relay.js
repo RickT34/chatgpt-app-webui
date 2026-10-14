@@ -9,12 +9,25 @@ async function connectRelay(createHost) {
   const sharedSubscriptions = new Set();
   const minimal=window.document?.documentElement?.dataset.chatgptWebHost==='minimal';
   const send = value => {if(ws.readyState===1)ws.send(window.chatgptWebCodec.pack(value));};
-  let warmHost=null,generation=0;
+  let warmHost=null,browserHost=null,generation=0;
   if(minimal){
     send({kind:'host-state',value:'warming'});
     createHost??=(await import(new URL('web-host.mjs',window.location.href).href)).createWarmHost;
     const {port1,port2}=new MessageChannel();
-    warmHost=createHost(port1,{onBroken:error=>send({kind:'host-error',value:error.message})});
+    warmHost=createHost(port1,{onBroken:error=>{browserHost?.close();send({kind:'host-error',value:error.message});},adaptServices:async(services,RpcTarget)=>{
+      if(!services.browserHost)return {};
+      const {createBrowserHost}=await import(new URL('web-browser-host.mjs',window.location.href).href);
+      browserHost=createBrowserHost(services.browserHost,{document:window.document,sendMessage:message=>bridge.sendMessageFromView(message)});
+      class BrowserHost extends RpcTarget{
+        registerWebviewHostSession(){return browserHost.registerWebviewHostSession();}
+        registerWebviewHost(request){return browserHost.registerWebviewHost(request);}
+        syncView(request){return browserHost.syncView(request);}
+      }
+      return {browserHost:new Proxy(new BrowserHost(),{get(target,method){
+        if(typeof method!=='string'||method in target||method==='then')return Reflect.get(target,method);
+        return (...args)=>services.browserHost[method](...args);
+      }})};
+    }});
     window.postMessage({type:'connect-app-host',port:port2},window.location.origin,[port2]);
     await warmHost.ready;
   }
@@ -35,6 +48,7 @@ async function connectRelay(createHost) {
   window.addEventListener('message',event=>{
     // The original preload dispatches synthetic MessageEvents with source === null.
     if((event.source!==null && event.source!==window) || event.data?.type==='connect-app-host')return;
+    browserHost?.handle(event.data);
     try{send({kind:'event',value:event.data});}catch{}
   });
   bridge.subscribeToSystemThemeVariant(()=>send({kind:'theme',value:bridge.getSystemThemeVariant()}));
@@ -69,6 +83,7 @@ async function connectRelay(createHost) {
       if(m.kind==='call'){
         const allowed=['sendMessageFromView','sendWorkerMessageFromView','acknowledgeChunkedMessage','getFastModeRolloutMetrics','showContextMenu','getSharedObjectSnapshotValue'];
         if(!allowed.includes(m.method))throw Error(`Unsupported bridge method: ${m.method}`);
+        if(m.method==='sendMessageFromView')browserHost?.observeViewMessage(m.args?.[0]);
         if(minimal&&m.method==='sendMessageFromView'&&typeof m.args?.[0]?.key==='string'){
           const {type,key}=m.args[0];
           if(type==='shared-object-subscribe')sharedSubscriptions.add(key);

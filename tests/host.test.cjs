@@ -57,3 +57,30 @@ test('native connection loss is reported instead of advertising stale ready stat
  try{await warm.ready;native[Symbol.dispose]();await until(()=>failure);assert.match(failure.message,/closed/i);}
  finally{warm.close();native[Symbol.dispose]();channel.port2.close();}
 });
+
+test('resident service adapters survive actual RPC disposal and browser reconnect',async()=>{
+ const {RpcTarget,newMessagePortRpcSession,createWarmHost}=await modules();
+ const channel=new MessageChannel();let adapted=0;
+ class Startup extends RpcTarget{whenReady(){}}
+ class Info extends RpcTarget{get(){return {version:'test'};}}
+ class Browser extends RpcTarget{registerWebviewHost(){return 'native';}getState(){return 'native state';}}
+ const native=newMessagePortRpcSession(channel.port2,{services:{startup:new Startup(),appInfo:new Info(),browserHost:new Browser()}});
+ const warm=createWarmHost(channel.port1,{adaptServices:async(source,Target)=>{
+  adapted++;
+  class Browser extends Target{registerWebviewHost(){return 'resident';}}
+  return {browserHost:new Proxy(new Browser(),{get(target,key){
+   if(typeof key!=='string'||key in target||key==='then')return Reflect.get(target,key);
+   return (...args)=>source.browserHost[key](...args);
+  }})};
+ }});
+ async function browser(){
+  const c=new MessageChannel(),client=newMessagePortRpcSession(c.port1,{services:{}}),detach=await warm.attach(c.port2);
+  try{const services=await client.services;return [await services.browserHost.registerWebviewHost(),await services.browserHost.getState()];}
+  finally{detach();client[Symbol.dispose]();c.port1.close();}
+ }
+ try{
+  assert.deepEqual(await browser(),['resident','native state']);
+  assert.deepEqual(await browser(),['resident','native state']);
+  assert.equal(adapted,1,'reconnecting must not create a second resident service owner');
+ }finally{warm.close();native[Symbol.dispose]();channel.port2.close();}
+});

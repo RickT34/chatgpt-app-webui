@@ -213,3 +213,16 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 两个独立 Electron 进程加载真实原界面，最后一组关闭 CPU profiler。首屏按原版 `first_content_visible` 记录：首次 24.0→24.2 秒，同一浏览器再次打开 23.4→21.5 秒，全新浏览器 20.5→19.6 秒。仅为少量顺序样本，不承诺固定提速比例或秒开。
 - 第二、三次均命中宿主配置；运行时摘要读取量均为 0。此前一次完整首次采样观察到 4 个文件合计约 643 MB。网页 Sentry IPC 失败和配置配额错误均为 0；不是通过全局屏蔽错误实现。
 - 记录位于 `.logs/startup-investigation/unprofiled-before/`、`unprofiled-after/`。临时进程、profile 与验证副本已清理。没有测试 Docker。
+
+## 2026-10-14 · 内置浏览器挂载
+
+- 修改前在实际运行服务调用 CUA `createBrowserTab`，复现约 15 秒 WebView attach 超时。原版日志只有 renderer 创建标签记录，没有 native runtime attach；真实宿主状态为 minimal / nativeHostConnections=1。
+- 读取 App 26.1007.21434 的原版主进程及 renderer 代码，追踪注册、partition 身份、挂载、回收和同步策略。REA 对 3 个相关原版函数的提取片段完成静态分析；证据 `ev_cde8687b15a4cb7edc88bc5a93905b4b622aaf5fa15bd4999026bdc7364cf691` 仅覆盖这些片段，不代表完整应用语义或运行结果。
+- 独立 Electron 宿主、独立 profile、本机随机端口：通过原版 browserHost 注册/导航路径挂载原生 guest；fixture 页面标题、正文正确，截图为 1280×720。断开 RPC/WebSocket 再连接，新 renderer 身份注册仍复用同一 guest ID；发送原版 close-tab 后，guest 被销毁且原生记录清理。
+- 测试 fixture 必须补齐原界面正常发送的 ready、annotation API 初始化消息和 runtimeIntlConfig；否则空白独立 profile 的原版 preload 会等待策略初始化。仅在测试实例中初始化为关闭该可选 API，产品代码不更改此策略。
+- 回归覆盖并发注册合并、原生准入拒绝及重试、注册期间关闭、后台激活、截图尺寸、重连时持久化校验、过期回收请求和真实 capnweb 适配器跨连接保留。保留了原有启动/流式 RPC 测试。
+- 正式运行实例未热修改、未重启。本次没有在更新后的正式实例上完成 CUA 点击/输入验收，也没有验证网页面板的画面转发；需重启后测试。未做 Docker 测试。
+
+手动验收：重启原服务并刷新网页，让 Codex 创建 example.com 标签、读取正文和截图；再在测试表单中输入并点击。刷新网页后绑定同一标签，确认不再出现挂载超时；关闭测试标签后确认不再列出它。
+
+- 最终自动回归：Node 71 项、Python 18 项通过；`git diff --check` 通过。独立目录的完整 prepare 成功生成 App 26.1007.21434 的原生副本及 20,130 个资源。调查记录在 `.logs/browser-investigation/`；临时宿主、profile 和准备副本均已清理。
