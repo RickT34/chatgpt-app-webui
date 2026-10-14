@@ -37,6 +37,7 @@ window.chatgptWebReady=(async()=>{
     pending.set(id,{resolve,reject,timer});send({kind:'call',method,args,id});
   });
   const native=window.chatgptWebNative(call);
+  const browserView=window.chatgptWebBrowserView.create(call,{writeText:native.clipboard.writeText});
   const folderPicker=window.chatgptWebFolderPicker(call);
   const attachments=window.chatgptWebAttachments(call);
   window.codexWindowType='electron';
@@ -96,6 +97,7 @@ window.chatgptWebReady=(async()=>{
   for(const event of queued)ws.onmessage(event);
   queued.length=0;
   ws.onclose=()=>{
+    browserView.close();
     clearInterval(liveness);
     folderPicker.close();attachments.close();native.close();
     for(const adapted of adaptedPorts.values())adapted.close();adaptedPorts.clear();

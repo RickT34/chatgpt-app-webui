@@ -241,3 +241,12 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - Python unittest 18/18 通过，git diff --check 通过。
 - 模拟 DOM 测试覆盖：启动超时不触发断线且允许延迟就绪、失败提示关闭不刷新、取消接管不创建连接、宿主取消无响应也立即关闭、剪贴板关闭结束等待、保存关闭发送取消、附件提交期间关闭不误删、提交失败清理、上传完成不重建已关闭提示。
 - 使用 review-testing 检查了取消语义与异步提交副作用；本轮没有网页交互实测，布局、焦点与浏览器行为由用户验收。
+
+## 2026-10-14 · 网页浏览器面板画面与输入
+
+- 在 App 26.1007.21434 的独立 headless/disable-gpu 宿主、独立 profile 和本机随机端口上，以原版 browserHost 注册及导航创建 1280×720 guest。客户端测试页使用生产 `browser-view.js`，经过真实 WebSocket → relay → IPC → guest 取图，在 960×540 面板显示。未对正式实例热修改或重启。
+- CUA 在客户端截图中确认页面正文可见，并通过画面坐标点击输入框、输入中文和 emoji、点击 Apply。原生 DOM 的输入值与结果文字均为 `画面已连接 👋`；随后验证 Ctrl+A 替换输入。滚动后原生 scrollY 为 720，客户端画面同步。隐藏面板期间取图计数保持 88，重新显示后增长至 89 并恢复画面。
+- 实测发现该 Electron 的 sandboxed `webFrame.insertText` 不可用，`sendInputEvent` 的非 ASCII char 也被拒绝；最终使用 Chromium 的固定 `Input.insertText` 命令，复用现有 debugger 或短暂连接后释放。初始导航瞬间的捕获失败可重试，并通过结构化错误返回，最终宿主日志无 `browser-surface` handler-failed 堆栈。
+- Node 96 项、Python 18 项通过。新增测试覆盖连接接管后拒绝旧帧、跨宿主 guest 拒绝、并发捕获合并、静态图像去重、失败后恢复、输入参数校验、Unicode 文本、debugger 所有权、等比缩放留白坐标、guest ID 服务端解析和关闭期间丢弃迟到画面。按 review-testing 复核测试副作用与资源释放。
+- 独立目录完整 prepare 成功生成 20,131 个资源；检查新增原生模块、preload 方法、网页脚本及现有 CSP 的 blob 图像支持。最终静态版本前缀 `d52bc9b687b1`。记录与截图在 `.logs/browser-surface-investigation/`。
+- 范围：本地测试页验证真实 native guest 的显示/输入链路，未在用户域名的完整 React 面板中验收，也未验证所有输入法、原生弹窗或持续视频帧率。正式服务需按原命令重启并刷新后由用户复测。未进行 Docker 测试。

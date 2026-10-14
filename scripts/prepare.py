@@ -42,6 +42,7 @@ with archive.open('rb') as f:
         '.vite/build/preload.js': (preload + '''\n;require('electron').contextBridge.exposeInMainWorld('chatgptWebTransport', {
  send: value => require('electron').ipcRenderer.send('chatgpt-web:from-relay', value),
  getSnapshot: () => require('electron').ipcRenderer.sendSync('codex_desktop:get-shared-object-snapshot'),
+ browserSurface: value => require('electron').ipcRenderer.invoke('chatgpt-web:browser-surface', value),
  getInitialSidebarBootstrap: () => require('electron').ipcRenderer.sendSync('codex_desktop:get-initial-sidebar-bootstrap'),
  subscribe: callback => require('electron').ipcRenderer.on('chatgpt-web:to-relay', (_event, value) => callback(value))
 });\n''').encode(),
@@ -60,6 +61,7 @@ with archive.open('rb') as f:
     if runtime_patches != 1:
         raise SystemExit(f'Unsupported App: expected one runtime validation module, found {runtime_patches}')
     additions['.vite/build/web-file-digest-cache.cjs'] = (ROOT/'bridge/file-digest-cache.cjs').read_bytes()
+    additions['.vite/build/web-browser-surface.cjs'] = (ROOT/'bridge/browser-surface.cjs').read_bytes()
     if host_renderer == 'minimal':
         # The resident browser host implements this original admission protocol.
         # Fail preparation on incompatible upgrades instead of timing out later.

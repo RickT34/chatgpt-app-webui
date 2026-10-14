@@ -12,7 +12,7 @@ function entryScript(html){
 function renderPage(html,{startup,version,websocketOrigin,preloads=[],title='ChatGPT Web'}){
  const prefix=`/static/${version}`;
  const hash=require('node:crypto').createHash('sha256').update(startup).digest('base64');
- const scripts=['identity.js','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js'];
+ const scripts=['identity.js','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.js','attachments.js','resources.js','browser-native.js','browser-view.js','client.js'];
  const pageTitle=(String(title??'').replace(/\s+/g,' ').trim()||'ChatGPT Web')
   .replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
  html=html.replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi,'')

@@ -102,5 +102,15 @@ export function createBrowserHost(service,{document,sendMessage,report=console.w
   }
  }
  return {registerWebviewHostSession:start,registerWebviewHost:register,syncView,handle,observeViewMessage,
+  async surface(route,request,transport){
+   const page=valid(route)?pages.get(key(route)):null;
+   if(!page)throw Error('Browser page is not attached yet');
+   await page.ready;
+   if(page.removed||!page.element?.getWebContentsId)throw Error('Browser page unavailable');
+   const guestId=page.element.getWebContentsId();
+   const result=await transport({...request,guestId});
+   if(page.removed)throw Error('Browser page closed');
+   return request.action==='frame'?{...result,width:page.element.clientWidth,height:page.element.clientHeight}:result;
+  },
   close(){closed=true;pendingSizes.clear();for(const page of pages.values())remove(page);}};
 }

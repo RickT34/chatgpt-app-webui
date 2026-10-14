@@ -84,6 +84,15 @@ async function connectRelay(createHost) {
       }
       if(m.kind==='worker-unsubscribe'){workers.get(m.id)?.();workers.delete(m.id);return;}
       if(m.kind==='call'){
+        if(m.method==='browser.surface'){
+          if(!browserHost)throw Error('Browser surface requires the minimal host');
+          const [route,request]=m.args??[];
+          const value=await browserHost.surface(route,{...request,session:m.session},async value=>{
+            const result=await window.chatgptWebTransport.browserSurface(value);
+            if(result.error)throw Error(result.error);return result.value;
+          });
+          send({kind:'result',id:m.id,value,session:m.session});return;
+        }
         const allowed=['sendMessageFromView','sendWorkerMessageFromView','acknowledgeChunkedMessage','getFastModeRolloutMetrics','showContextMenu','getSharedObjectSnapshotValue'];
         if(!allowed.includes(m.method))throw Error(`Unsupported bridge method: ${m.method}`);
         if(m.method==='sendMessageFromView')browserHost?.observeViewMessage(m.args?.[0]);

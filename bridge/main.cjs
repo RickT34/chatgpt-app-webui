@@ -1,7 +1,7 @@
 'use strict';
 const hostStartedAt=performance.now();let rendererReadyMs=null;
 // Runs inside the original Electron main process, before its original entrypoint.
-const {app, ipcMain, dialog} = require('electron');
+const {app, ipcMain, dialog, webContents} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -131,6 +131,16 @@ server.on('upgrade',(req,socket,head)=>{
   });
 });
 const relayTargets = new Set();
+const browserSurface=require('./web-browser-surface.cjs')({
+  getGuest:id=>Number.isSafeInteger(id)?webContents.fromId(id):null,
+  isOwner:(sender,session)=>sender.id===relayContentsId&&relayTargets.has(sender.id)&&connections.client?.readyState===1&&connections.client.webClientId===session,
+});
+ipcMain.handle('chatgpt-web:browser-surface',async(event,value)=>{
+  // Navigation can briefly have no capture surface. Return the error to the
+  // panel without Electron printing a handler-failed stack on every retry.
+  try{return {value:await browserSurface(event.sender,value)};}
+  catch(error){return {error:error.message};}
+});
 ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
   if(event.sender.id!==relayContentsId || !relayTargets.has(event.sender.id))return;
   let message;try{message=JSON.parse(data);}catch{return;}

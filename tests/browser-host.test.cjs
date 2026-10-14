@@ -82,3 +82,24 @@ test('late background teardown does not remove a newly presented page',async()=>
   assert.equal(messages[0].teardownId,'old');
  }finally{host.close();}
 });
+
+test('surface requests use the registered native guest, never a client-supplied guest id',async()=>{
+ const {host,elements}=await fixture();
+ try{
+  await host.registerWebviewHost(route);
+  Object.assign(elements[0],{getWebContentsId:()=>42,clientWidth:1280,clientHeight:720});
+  const forwarded=[];
+  const frame=await host.surface(route,{action:'frame',guestId:99,session:'current'},async value=>{forwarded.push(value);return {revision:'image'};});
+  assert.deepEqual(forwarded,[{action:'frame',guestId:42,session:'current'}]);
+  assert.deepEqual(frame,{revision:'image',width:1280,height:720});
+  await assert.rejects(host.surface({...route,browserTabId:'missing'},{action:'frame'},()=>assert.fail('must not forward')),/not attached/);
+ }finally{host.close();}
+});
+test('closing a page during capture discards its late image',async()=>{
+ const {host,elements}=await fixture();await host.registerWebviewHost(route);
+ Object.assign(elements[0],{getWebContentsId:()=>42});
+ let finish;
+ const pending=host.surface(route,{action:'frame'},()=>new Promise(resolve=>{finish=resolve;}));
+ await Promise.resolve();host.close();finish({bytes:new Uint8Array([1,2,3])});
+ await assert.rejects(pending,/closed/);
+});
