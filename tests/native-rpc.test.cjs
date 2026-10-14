@@ -13,7 +13,7 @@ test('clipboard is local, failures propagate, other services and callbacks cross
  class OriginalView extends RpcTarget{get services(){return {callback:new LocalCallback()};}}
  class HostClipboard extends RpcTarget{writeText(){hostWrites++;}}
  class Info extends RpcTarget{get(){return 'original app';}}
- class Startup extends RpcTarget{whenReady(){startupCalls++;return new Promise(()=>{});}isSentryEnabled(){return false;}reach(phase){hostPhases.push(phase);}}
+ class Startup extends RpcTarget{whenReady(){startupCalls++;return new Promise(()=>{});}isSentryEnabled(){throw Error('Browser must not enable the Electron-only Sentry transport');}reach(phase){hostPhases.push(phase);}}
  class OriginalHost extends RpcTarget{get services(){serviceReads++;return {clipboard:new HostClipboard(),appInfo:new Info(),startup:new Startup()};}}
  const view=newMessagePortRpcSession(a.port1,new OriginalView());
  const adapter=adaptAppHost(a.port2,{writeText:async value=>{if(value==='denied')throw Error('denied by browser');localText=value;},readText:async()=>localText},{onPhase:phase=>clientPhases.push(phase)});

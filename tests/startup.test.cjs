@@ -43,7 +43,7 @@ test('replacing the initial loading DOM or mounting React does not complete star
  const timers=new Map();let next=0,removed=0;
  const node=()=>({style:{},setAttribute(){},append(){},remove(){removed++;}});
  const document={body:node(),createElement:node,addEventListener(){},getElementById:()=>({children:[{}],querySelector:()=>null})};
- const window={addEventListener(){},dispatchEvent(){}};
+ const events=[];const window={addEventListener(){},dispatchEvent:event=>events.push(event.type)};
  let fetches=0;
  vm.runInNewContext(fs.readFileSync('bridge/startup.js','utf8'),{window,document,location:{reload(){}},Event,performance,AbortController,
   fetch:async()=>{fetches++;return {ok:true,json:async()=>({})};},
@@ -54,6 +54,7 @@ test('replacing the initial loading DOM or mounting React does not complete star
  startup.hostReady();startup.entryReady();startup.phase('renderer_ready');
  assert.equal(removed,0,'React loading fallback must retain the startup watchdog');assert.equal(timers.size,1);
  startup.phase('first_content_visible');assert.equal(removed,1);assert.equal(timers.size,0);
+ assert.deepEqual(events,['chatgpt-web:ready']);startup.phase('first_content_visible');assert.equal(events.length,1);
  assert.equal(startup.timings.at(-1).phase,'ready');
  assert(startup.timings.every(value=>value.ms>=0));
 });

@@ -34,8 +34,11 @@ async function build({output,origin,buildKey,files,read,html}){
  for(const name of files){
   let data=await read(name);
   if(/\.m?js$/.test(name)&&!name.startsWith('bridge/')){
-   const source=data.toString();
-   if(source.includes('app://fs'))data=Buffer.from(source.replace(/(["'`])app:\/\/fs\1/g,JSON.stringify(origin)));
+   let source=data.toString();
+   if(/^assets\/app-initial-[\w-]+\.js$/.test(name))source=require('../bridge/statsig-patch.cjs')(source);
+   if(/^assets\/app-shared-[\w-]+\.js$/.test(name))source=require('../bridge/statsig-patch.cjs').clientFactory(source);
+   if(source.includes('app://fs'))source=source.replace(/(["'`])app:\/\/fs\1/g,JSON.stringify(origin));
+   data=Buffer.from(source);
   }
   const digest=hash(data),type=mime[path.extname(name)]||'application/octet-stream';
   const variants={identity:{file:digest,size:data.length}};
@@ -82,7 +85,7 @@ async function main(){
  const archive=openArchive(prepared.source);
  try{
   const html=archive.read('index.html').toString();
-  const bridge=new Map(['identity.js','favicon.svg','codec.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));
+  const bridge=new Map(['identity.js','favicon.svg','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));
   bridge.set('bridge/capnweb.js',()=>fs.readFileSync(path.join(root,'node_modules/capnweb/dist/index.js')));
   bridge.set('bridge/entry.js',()=>Buffer.from(entryScript(html)));
   const files=[...archive.files.keys(),...bridge.keys()].filter(name=>name!=='index.html');

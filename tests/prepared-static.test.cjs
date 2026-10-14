@@ -79,6 +79,8 @@ test('HTML versions module graphs while preserving router base, CSP, and deferre
  assert(page.includes(`href="${prefix}assets/initial.js"`));assert(page.includes(`href="${prefix}bridge/rpc-client.mjs"`));
  assert(page.includes(`defer src="${prefix}bridge/client.js"`));assert(page.includes(`type="module" src="${prefix}bridge/entry.js"`));
  assert(page.indexOf('bridge/client.js')<page.indexOf('bridge/entry.js'));
+ assert(page.indexOf('bridge/statsig-storage.js')<page.indexOf('bridge/client.js'));
+ assert(page.indexOf('bridge/statsig-bootstrap.js')<page.indexOf('bridge/client.js'));
  assert(page.indexOf('Content-Security-Policy')<page.indexOf('assets/initial.js'));
  assert(page.includes(require('node:crypto').createHash('sha256').update(startup).digest('base64')));
  assert(page.includes('connect-src wss://one.example '));assert(!page.includes('unsafe-inline'));

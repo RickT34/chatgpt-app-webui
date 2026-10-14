@@ -17,6 +17,10 @@ let snapshot = null;
 let rendererState = 'starting';
 let client = null;
 let browserConnections=0,nativeHostConnections=0;
+const bootstrapReader=require('./web-bootstrap.cjs')(message=>{
+  if(peer?.readyState!==1)throw Error('App renderer unavailable');
+  peer.send(JSON.stringify(message));
+});
 ipcMain.on('codex_desktop:connect-app-host',event=>{if(event.sender.id===relayContentsId)nativeHostConnections++;});
 const folderPicker=require('./web-folders.cjs')({send:message=>client?.send(codec.pack(message))});
 const uploads=require('./web-uploads.cjs')(path.join(process.env.CHATGPT_WEB_ROOT,'.uploads'));
@@ -73,7 +77,11 @@ const server = http.createServer(async(req,res)=>{
       .catch(error=>{if(!res.destroyed){req.resume();json(res,error.status||400,{error:error.message});}});
     return;
   }
-  if(u.pathname==='/bridge/bootstrap') return json(res,snapshot?200:503,snapshot || {error:'App renderer is not ready'});
+  if(u.pathname==='/bridge/bootstrap'){
+    if(!snapshot)return json(res,503,{error:'App renderer is not ready'});
+    try{return json(res,200,await bootstrapReader.read());}
+    catch{return json(res,503,{error:'App renderer is not ready'});}
+  }
   if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,hostRenderer,persistentHost:hostRenderer==='minimal',browserConnections,nativeHostConnections,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
   if(!['GET','HEAD'].includes(req.method)) {res.writeHead(405);return res.end();}
   try {
@@ -120,9 +128,13 @@ const relayTargets = new Set();
 ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
   if(event.sender.id!==relayContentsId || !relayTargets.has(event.sender.id))return;
   let message;try{message=JSON.parse(data);}catch{return;}
+  if(message.kind==='bootstrap-fresh'){
+    if(bootstrapReader.receive(message)&&!message.error)snapshot=message.value;
+    return;
+  }
   if(message.kind==='host-state'){rendererState='warming';console.log('[chatgpt-web] 正在预热宿主服务…');return;}
   if(message.kind==='host-error'){
-    peer=null;snapshot=null;rendererState='host connection failed';rendererReadyMs=null;
+    peer=null;snapshot=null;bootstrapReader.reset();rendererState='host connection failed';rendererReadyMs=null;
     console.error('[chatgpt-web] 宿主服务连接失效，请重启服务。',codec.decode(message.value));
     client?.close(1012,'App host connection failed');return;
   }
@@ -159,7 +171,7 @@ app.on('web-contents-created',(_event,wc)=>{
     relayTargets.delete(wc.id);
     if(relayContentsId!==wc.id)return;
     if(destroyed)relayContentsId=null;
-    peer=null;snapshot=null;rendererState=reason;rendererReadyMs=null;
+    peer=null;snapshot=null;bootstrapReader.reset();rendererState=reason;rendererReadyMs=null;
     console.warn('[chatgpt-web]',reason);
     client?.close(1012,reason);
   };
@@ -178,4 +190,4 @@ app.on('web-contents-created',(_event,wc)=>{
     wc.executeJavaScript(`${codec};(${source})()`).catch(e=>{if(current===generation)invalidate('App bridge injection failed');console.error('[chatgpt-web] injection failed',e.message);});
   });
 });
-app.on('before-quit',()=>{client?.close();peer?.close();server.close();});
+app.on('before-quit',()=>{bootstrapReader.reset();client?.close();peer?.close();server.close();});

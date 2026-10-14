@@ -199,3 +199,17 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 对本次真实原生输出应用默认日志规则，40 行收敛为 4 行状态输出；原文不丢弃，详细日志仍可查看。保留可处理网络/配置错误及异常退出提示。没有把 MaxListenersExceededWarning 隐藏后当作“已证明不存在泄漏”。
 - 本机 nginx/systemd 实例未修改。`systemd-analyze --user verify deploy/chatgpt-web.service` 通过，仅校验模板，没有安装或 enable。没有测试 Docker 或自动操作真实网页，目标服务器完整首屏仍由使用者验收。
 - 测试报告：`.logs/warm-baseline.json`、`.logs/warm-final.json`；精简输出示例：`.logs/normal-console-preview.txt`。测试子进程及临时 profile 已关闭。
+
+## 2026-10-14 · 完整页面初始化与配置缓存
+
+- `npm test`：53 项通过。新增大响应块传输、TypedArray/DataView 边界、无原生 Base64 API 的浏览器回退、配置缓存跨实例恢复、加载期间修改、配额和存储故障回退、SDK 关闭存储时不访问新缓存等验证。
+- 在当前 ARM 机器上使用独立宿主和浏览器进程加载真实原版页面。修改前每次出现 5 次 Statsig 缓存 QuotaExceededError；最终版三次加载均为 0，同一浏览器重新打开的宿主出站桥接消息从约 36.0 MB 降到 6.8 MB。
+- 完整首屏仍为 21–31 秒，不能宣称已经实现任意浏览器快速打开。样本方法、阶段定义、数据及限制见 [启动调查](STARTUP_ANALYSIS.md)。临时进程和 profile 已清理，原运行服务继续使用旧准备副本，未做 Docker 测试。
+
+## 2026-10-14 · 宿主配置、文件摘要与当前快照
+
+- `npm test` 63 项、Python unittest 18 项通过。新增并发文件摘要复用、文件修改/替换/删除与故障重试、完整 SDK 身份和新鲜度校验、首屏后刷新与离页取消、快照合并和宿主失效处理。侧栏测试显式模拟原版 getter 永久缓存，验证新路径读取当前 IPC 结果。
+- 对 App 26.1007.21434 在独立目录执行完整 `scripts/prepare.py`，成功生成私有 ASAR 和 20,130 个静态资源；SDK 与原生摘要补丁均通过唯一匹配。未更改正在运行服务的副本。
+- 两个独立 Electron 进程加载真实原界面，最后一组关闭 CPU profiler。首屏按原版 `first_content_visible` 记录：首次 24.0→24.2 秒，同一浏览器再次打开 23.4→21.5 秒，全新浏览器 20.5→19.6 秒。仅为少量顺序样本，不承诺固定提速比例或秒开。
+- 第二、三次均命中宿主配置；运行时摘要读取量均为 0。此前一次完整首次采样观察到 4 个文件合计约 643 MB。网页 Sentry IPC 失败和配置配额错误均为 0；不是通过全局屏蔽错误实现。
+- 记录位于 `.logs/startup-investigation/unprofiled-before/`、`unprofiled-after/`。临时进程、profile 与验证副本已清理。没有测试 Docker。

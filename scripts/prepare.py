@@ -30,7 +30,7 @@ with archive.open('rb') as f:
         return f.read(node['size'])
     package = json.loads(read('package.json'))
     preload = read('.vite/build/preload.js').decode()
-    for marker in ['electronBridge', 'sendMessageFromView', 'connect-app-host']:
+    for marker in ['electronBridge', 'sendMessageFromView', 'connect-app-host', 'codex_desktop:get-initial-sidebar-bootstrap']:
         if marker not in preload:
             raise SystemExit(f'Unsupported App: missing preload marker {marker}')
     original_main = package['main']
@@ -42,10 +42,24 @@ with archive.open('rb') as f:
         '.vite/build/preload.js': (preload + '''\n;require('electron').contextBridge.exposeInMainWorld('chatgptWebTransport', {
  send: value => require('electron').ipcRenderer.send('chatgpt-web:from-relay', value),
  getSnapshot: () => require('electron').ipcRenderer.sendSync('codex_desktop:get-shared-object-snapshot'),
+ getInitialSidebarBootstrap: () => require('electron').ipcRenderer.sendSync('codex_desktop:get-initial-sidebar-bootstrap'),
  subscribe: callback => require('electron').ipcRenderer.on('chatgpt-web:to-relay', (_event, value) => callback(value))
 });\n''').encode(),
         '.vite/build/web-entry.cjs': f'require("./web-main.cjs");\nrequire("./{pathlib.PurePosixPath(original_main).name}");\n'.encode(),
     }
+    runtime_modules = [name for name in entry('.vite/build')['files'] if name.startswith('src-') and name.endswith('.js')]
+    runtime_patches = 0
+    for name in runtime_modules:
+        source = read('.vite/build/' + name)
+        if b'chrome-plugin-app-server-runtime' not in source:
+            continue
+        additions['.vite/build/' + name] = subprocess.run(
+            ['node', str(ROOT/'bridge/native-patch.cjs')], input=source,
+            stdout=subprocess.PIPE, check=True).stdout
+        runtime_patches += 1
+    if runtime_patches != 1:
+        raise SystemExit(f'Unsupported App: expected one runtime validation module, found {runtime_patches}')
+    additions['.vite/build/web-file-digest-cache.cjs'] = (ROOT/'bridge/file-digest-cache.cjs').read_bytes()
     if host_renderer == 'minimal':
         # Keep the original window URL and preload (trusted IPC sender). Only the
         # unused host UI is removed; the browser still receives the original HTML.
@@ -56,7 +70,7 @@ with archive.open('rb') as f:
     additions['webview/web-capnweb.js'] = (ROOT/'node_modules/capnweb/dist/index.js').read_bytes()
     for name in ['host.mjs', 'rpc-client.mjs']:
         additions['webview/web-' + name] = (ROOT/'bridge'/name).read_text().replace("'./capnweb.js'", "'./web-capnweb.js'").replace("'./rpc-client.mjs'", "'./web-rpc-client.mjs'").encode()
-    for name in ['main.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
+    for name in ['main.cjs', 'bootstrap.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
         additions['.vite/build/web-' + name] = (ROOT / 'bridge' / name).read_bytes()
     payload_size = archive.stat().st_size - base
     offset = payload_size

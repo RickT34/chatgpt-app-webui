@@ -18,12 +18,20 @@ async function connectRelay(createHost) {
     window.postMessage({type:'connect-app-host',port:port2},window.location.origin,[port2]);
     await warmHost.ready;
   }
-  const snapshot = {};
-  for(const name of ['getSystemThemeVariant','getSentryInitOptions','getDesktopUserAgent','getAppSessionId','getBuildFlavor','getInitialSidebarBootstrap','isDeviceCheckSupported','isIntelMacBuild']) {
-    try {snapshot[name]=bridge[name]?.();}catch(e){console.warn('[chatgpt-web]',name,e.message);}
+  function readSnapshot(){
+    const snapshot = {};
+    for(const name of ['getSystemThemeVariant','getSentryInitOptions','getDesktopUserAgent','getAppSessionId','getBuildFlavor','getInitialSidebarBootstrap','isDeviceCheckSupported','isIntelMacBuild']) {
+      try {
+        // The official preload memoizes its sidebar getter for the lifetime of
+        // the native window. Our resident window needs a fresh IPC read instead.
+        snapshot[name]=name==='getInitialSidebarBootstrap'&&window.chatgptWebTransport.getInitialSidebarBootstrap
+          ?window.chatgptWebTransport.getInitialSidebarBootstrap():bridge[name]?.();
+      }catch(e){console.warn('[chatgpt-web]',name,e.message);}
+    }
+    snapshot.shared = window.chatgptWebTransport.getSnapshot() || {};
+    return snapshot;
   }
-  snapshot.shared = window.chatgptWebTransport.getSnapshot() || {};
-  send({kind:'snapshot',value:snapshot});
+  send({kind:'snapshot',value:readSnapshot()});
   window.addEventListener('message',event=>{
     // The original preload dispatches synthetic MessageEvents with source === null.
     if((event.source!==null && event.source!==window) || event.data?.type==='connect-app-host')return;
@@ -33,6 +41,7 @@ async function connectRelay(createHost) {
   ws.onmessage=async event=>{
     const m=window.chatgptWebCodec.unpack(event.data);
     try{
+      if(m.kind==='bootstrap-refresh'){send({kind:'bootstrap-fresh',id:m.id,value:readSnapshot()});return;}
       if(m.kind==='disconnect') {
         generation++;
         for(const entry of ports.values()){entry.detach?.();entry.port.close();}ports.clear();
@@ -68,7 +77,8 @@ async function connectRelay(createHost) {
         const value=await bridge[m.method](...m.args);send({kind:'result',id:m.id,value});
       }
     }catch(e){
-      if(m.kind==='port-open'){ports.get(m.id)?.port.close();ports.delete(m.id);send({kind:'port',id:m.id,value:null});}
+      if(m.kind==='bootstrap-refresh')send({kind:'bootstrap-fresh',id:m.id,error:e.message});
+      else if(m.kind==='port-open'){ports.get(m.id)?.port.close();ports.delete(m.id);send({kind:'port',id:m.id,value:null});}
       else send({kind:'result',id:m.id,error:e.message});
     }
   };

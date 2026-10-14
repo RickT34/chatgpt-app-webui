@@ -23,6 +23,7 @@ window.chatgptWebReady=(async()=>{
   let nextId=1;
   const pending=new Map(), ports=new Map(), workers=new Map(), themeSubscribers=new Set();
   const shared=bootstrap.shared || {};
+  window.chatgptWebGetStatsigBootstrap=()=>shared.statsig_evaluations;
   const send=value=>ws.send(window.chatgptWebCodec.pack(value));
   const call=(method,...args)=>new Promise((resolve,reject)=>{
     const id=nextId++;

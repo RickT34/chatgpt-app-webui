@@ -2,6 +2,17 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const codec=require('../bridge/codec.js');
+test('a new browser bootstrap reads current native sidebar and shared state',async()=>{
+ let receive,revision=1;const sent=[];
+ const window={electronBridge:{subscribeToSystemThemeVariant(){},getInitialSidebarBootstrap:()=>({catalogEntries:[1]})},
+  chatgptWebCodec:codec,chatgptWebTransport:{send:data=>sent.push(codec.unpack(data)),subscribe:fn=>{receive=fn;},getSnapshot:()=>({revision}),getInitialSidebarBootstrap:()=>({catalogEntries:[revision]})},
+  addEventListener(){}};
+ await new Function('window','return ('+fs.readFileSync('bridge/relay.js','utf8')+')()')(window);
+ assert.equal(sent[0].value.shared.revision,1);
+ revision=2;await receive(codec.pack({kind:'bootstrap-refresh',id:7}));
+ assert.equal(sent.at(-1).kind,'bootstrap-fresh');assert.equal(sent.at(-1).id,7);
+ assert.deepEqual(sent.at(-1).value.getInitialSidebarBootstrap,{catalogEntries:[2]});assert.equal(sent.at(-1).value.shared.revision,2);
+});
 test('forward synthetic preload responses with null source; reject other windows',()=>{
  const listeners=new Map(),sent=[];
  const window={electronBridge:{subscribeToSystemThemeVariant:()=>{}},chatgptWebCodec:codec,

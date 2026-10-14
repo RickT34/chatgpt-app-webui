@@ -62,7 +62,10 @@ export function adaptAppHost(uiPort,clipboard,{onPhase=()=>{}}={}){
  class Startup extends RpcTarget {
   constructor(native){super();this.native=native.dup();}
   async whenReady(){return undefined;}
-  async isSentryEnabled(){return this.native.isSentryEnabled();}
+  // The Electron SDK sends scope updates through sentry-ipc://. A browser has
+  // no such transport; enabling it creates a failed request for every update.
+  // Native host reporting keeps its own startup service and remains untouched.
+  async isSentryEnabled(){return false;}
   async reach(phase){onPhase(phase);return this.native.reach(phase);}
   [Symbol.dispose](){this.native[Symbol.dispose]();}
  }
