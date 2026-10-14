@@ -7,6 +7,7 @@ async function connectRelay(createHost) {
   const ports = new Map();
   const workers = new Map();
   const sharedSubscriptions = new Set();
+  const fetchOwners=new Map();
   const minimal=window.document?.documentElement?.dataset.chatgptWebHost==='minimal';
   const send = value => {if(ws.readyState===1)ws.send(window.chatgptWebCodec.pack(value));};
   let warmHost=null,browserHost=null,generation=0;
@@ -49,11 +50,13 @@ async function connectRelay(createHost) {
     // The original preload dispatches synthetic MessageEvents with source === null.
     if((event.source!==null && event.source!==window) || event.data?.type==='connect-app-host')return;
     browserHost?.handle(event.data);
-    try{send({kind:'event',value:event.data});}catch{}
+    const session=event.data?.requestId?fetchOwners.get(event.data.requestId):undefined;
+    try{send({kind:'event',value:event.data,...(session?{session}:{})});}catch{}
   });
   bridge.subscribeToSystemThemeVariant(()=>send({kind:'theme',value:bridge.getSystemThemeVariant()}));
   ws.onmessage=async event=>{
     const m=window.chatgptWebCodec.unpack(event.data);
+    const requestGeneration=generation;
     try{
       if(m.kind==='bootstrap-refresh'){send({kind:'bootstrap-fresh',id:m.id,value:readSnapshot()});return;}
       if(m.kind==='disconnect') {
@@ -68,7 +71,7 @@ async function connectRelay(createHost) {
       if(m.kind==='ack-discarded-chunk') {if(minimal)bridge.acknowledgeChunkedMessage(m.transferId,m.sequence);return;}
       if(m.kind==='port-open'){
         const {port1,port2}=new MessageChannel(),entry={port:port1};ports.set(m.id,entry);
-        port1.onmessage=e=>send({kind:'port',id:m.id,value:e.data});
+        port1.onmessage=e=>send({kind:'port',id:m.id,value:e.data,session:m.session});
         if(warmHost){
           const current=generation;entry.detach=await warmHost.attach(port2);
           if(current!==generation){entry.detach();port1.close();}
@@ -77,7 +80,7 @@ async function connectRelay(createHost) {
       }
       if(m.kind==='port'){ports.get(m.id)?.port.postMessage(m.value);return;}
       if(m.kind==='worker-subscribe'){
-        if(!workers.has(m.id))workers.set(m.id,bridge.subscribeToWorkerMessages(m.id,value=>send({kind:'worker',id:m.id,value})));return;
+        if(!workers.has(m.id))workers.set(m.id,bridge.subscribeToWorkerMessages(m.id,value=>send({kind:'worker',id:m.id,value,session:m.session})));return;
       }
       if(m.kind==='worker-unsubscribe'){workers.get(m.id)?.();workers.delete(m.id);return;}
       if(m.kind==='call'){
@@ -89,12 +92,16 @@ async function connectRelay(createHost) {
           if(type==='shared-object-subscribe')sharedSubscriptions.add(key);
           if(type==='shared-object-unsubscribe')sharedSubscriptions.delete(key);
         }
-        const value=await bridge[m.method](...m.args);send({kind:'result',id:m.id,value});
+        if(m.method==='sendMessageFromView'&&m.args?.[0]?.type==='fetch'&&m.session){
+          fetchOwners.set(m.args[0].requestId,m.session);
+          if(fetchOwners.size>4096)fetchOwners.delete(fetchOwners.keys().next().value);
+        }
+        const value=await bridge[m.method](...m.args);send({kind:'result',id:m.id,value,session:m.session});
       }
     }catch(e){
       if(m.kind==='bootstrap-refresh')send({kind:'bootstrap-fresh',id:m.id,error:e.message});
-      else if(m.kind==='port-open'){ports.get(m.id)?.port.close();ports.delete(m.id);send({kind:'port',id:m.id,value:null});}
-      else send({kind:'result',id:m.id,error:e.message});
+      else if(m.kind==='port-open'&&requestGeneration===generation){ports.get(m.id)?.port.close();ports.delete(m.id);send({kind:'port',id:m.id,value:null,session:m.session});}
+      else send({kind:'result',id:m.id,error:e.message,session:m.session});
     }
   };
 }

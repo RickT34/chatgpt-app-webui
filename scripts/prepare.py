@@ -80,7 +80,7 @@ with archive.open('rb') as f:
     additions['webview/web-capnweb.js'] = (ROOT/'node_modules/capnweb/dist/index.js').read_bytes()
     for name in ['host.mjs', 'rpc-client.mjs', 'browser-host.mjs']:
         additions['webview/web-' + name] = (ROOT/'bridge'/name).read_text().replace("'./capnweb.js'", "'./web-capnweb.js'").replace("'./rpc-client.mjs'", "'./web-rpc-client.mjs'").encode()
-    for name in ['main.cjs', 'bootstrap.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
+    for name in ['main.cjs', 'connections.cjs', 'bootstrap.cjs', 'page.cjs', 'static.cjs', 'startup.js', 'lifecycle.cjs', 'access.cjs', 'client.js', 'relay.js', 'codec.js', 'folders.cjs', 'uploads.cjs', 'downloads.cjs', 'files.cjs', 'rpc-client.mjs', 'browser-native.js', 'resources.js', 'attachments.js', 'folder-picker.js', 'folder-picker.css']:
         additions['.vite/build/web-' + name] = (ROOT / 'bridge' / name).read_bytes()
     payload_size = archive.stat().st_size - base
     offset = payload_size

@@ -7,15 +7,20 @@ window.chatgptWebReady=(async()=>{
   const adapter=startup.wait(import(chatgptWebRpcUrl),120000,'桥接模块下载超时。');
   adapter.catch(()=>{});
   startup.stage('等待宿主 App',185000);
-  const bootstrap=window.chatgptWebCodec.decode(await startup.bootstrapReady);
+  let bootstrap=window.chatgptWebCodec.decode(await startup.bootstrapReady);
   if(startup.failed)throw Error('启动已中止，请重试。');
-  startup.stage('连接宿主机',20000);
-  const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/bridge/socket`);
-  const queued=[];ws.onmessage=event=>queued.push(event);
-  ws.addEventListener('close',()=>startup.fail(Error('连接已断开，请重新加载；宿主 App 可能已重启。')));
+  startup.stage('检查连接状态',45000);
+  const queued=[];
+  const ws=await startup.acquire({fetcher:fetch,confirm:()=>startup.confirmTakeover(),
+    connecting:()=>{if(startup.failed)throw Error('启动已中止，请重试。');startup.stage('连接宿主机',20000);},
+    makeSocket:path=>{const socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}${path}`);socket.onmessage=event=>queued.push(event);return socket;}});
+  ws.addEventListener('close',event=>startup.fail(Error(event.code===4001?'连接已被其他设备接管。本页面不会自动重连。':'连接已断开，请重新加载；宿主 App 可能已重启。')));
   window.addEventListener('chatgpt-web:failed',()=>ws.close(1000,'Client startup failed'),{once:true});
   window.addEventListener('pagehide',()=>ws.close(1000,'Page left'),{once:true});
-  await startup.connect(ws);
+  if(startup.failed){ws.close();throw Error('启动已中止，请重试。');}
+  // Confirmation may remain open for a long time; refresh state after ownership changes.
+  startup.stage('同步会话状态',185000);
+  bootstrap=window.chatgptWebCodec.decode(await startup.bootstrap(fetch));
   startup.stage('下载桥接模块');
   const {adaptAppHost}=await adapter;
   if(startup.failed)throw Error('启动已中止，请重试。');

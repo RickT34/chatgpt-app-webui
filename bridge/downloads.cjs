@@ -8,10 +8,10 @@ module.exports=function downloads(root,{send}){
  async function ready(destination){
   const entry=[...files.values()].find(v=>v.path===path.resolve(String(destination)));
   if(!entry||entry.ready)return;
-  try{const stat=await fs.promises.stat(entry.path);if(!stat.isFile()||entry.ready)return;entry.ready=true;send({kind:'download-ready',value:{name:entry.name,url:'/bridge/download/'+entry.id}});}catch(error){console.error('[download]',error.message);}
+  try{const stat=await fs.promises.stat(entry.path);if(!stat.isFile()||entry.ready)return;entry.ready=true;send({kind:'download-ready',value:{name:entry.name,url:'/bridge/download/'+entry.id}},entry.owner);}catch(error){console.error('[download]',error.message);}
  }
  return {
-  open(options={}){const id=crypto.randomUUID();return new Promise(resolve=>{pending.set(id,{resolve,extensions:(options.filters||[]).flatMap(f=>f.extensions||[])});send({kind:'save-open',value:{id,name:path.basename(options.defaultPath||'download.txt')}});});},
+  open(options={},owner){const id=crypto.randomUUID();return new Promise(resolve=>{pending.set(id,{resolve,owner,extensions:(options.filters||[]).flatMap(f=>f.extensions||[])});send({kind:'save-open',value:{id,name:path.basename(options.defaultPath||'download.txt')}},owner);});},
   async choose(id,name){
    const choice=pending.get(id);if(!choice)throw Error('保存窗口已失效');
    if(name===null){pending.delete(id);choice.resolve({canceled:true,filePath:undefined});return;}
@@ -20,7 +20,7 @@ module.exports=function downloads(root,{send}){
    if(extensions.length&&!extensions.includes(path.extname(name).slice(1).toLowerCase()))name+='.'+extensions[0];
    safeName(name);const directory=path.join(root,id);await fs.promises.mkdir(directory,{recursive:true,mode:0o700});
    if(pending.get(id)!==choice)throw Error('保存窗口已关闭');
-   const file=path.join(directory,name);files.set(id,{id,name,path:file,ready:false});pending.delete(id);choice.resolve({canceled:false,filePath:file});
+   const file=path.join(directory,name);files.set(id,{id,name,path:file,ready:false,owner:choice.owner});pending.delete(id);choice.resolve({canceled:false,filePath:file});
   },
   get(id){const file=files.get(id);return file?.ready?file:null;},
   cancel(){for(const value of pending.values())value.resolve({canceled:true,filePath:undefined});pending.clear();},

@@ -94,3 +94,19 @@ test('resource errors identify the failed path without leaking query credentials
  assert.match(message,/下载页面资源失败/);assert.match(message,/\/static\/version\/bridge\/client\.js/);
  assert(!/password|secret|等待宿主/.test(message));assert(window.chatgptWebStartup.failed);
 });
+
+test('occupied page waits for explicit confirmation before opening a takeover connection',async()=>{
+ const {acquire}=require('../bridge/startup.js');let approve,shown,opened;
+ const prompted=new Promise(resolve=>{shown=resolve;});
+ const result=acquire({fetcher:async()=>({ok:true,json:async()=>({browser:true,clientId:'old-id'})}),confirm:()=>{shown();return new Promise(resolve=>{approve=resolve;});},makeSocket:path=>{
+  opened=path;const ws=new Socket();queueMicrotask(()=>ws.dispatchEvent(new Event('open')));return ws;
+ }});
+ await prompted;assert.equal(opened,undefined);approve();await result;assert.equal(opened,'/bridge/socket?takeover=old-id');
+});
+test('connection races ask again for the new owner instead of silently stealing it',async()=>{
+ const {acquire}=require('../bridge/startup.js');let confirmations=0,attempt=0;const urls=[];
+ await acquire({fetcher:async()=>({ok:true,json:async()=>({browser:true,clientId:attempt?'new-id':'old-id'})}),confirm:async()=>{confirmations++;},makeSocket:path=>{
+  urls.push(path);const ws=new Socket();const success=++attempt===2;queueMicrotask(()=>ws.dispatchEvent(new Event(success?'open':'error')));return ws;
+ }});
+ assert.equal(confirmations,2);assert.deepEqual(urls,['/bridge/socket?takeover=old-id','/bridge/socket?takeover=new-id']);
+});

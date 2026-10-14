@@ -15,29 +15,33 @@ let peer = null;
 let relayContentsId = null;
 let snapshot = null;
 let rendererState = 'starting';
-let client = null;
+const connections=require('./web-connections.cjs')({onRelease:ws=>{
+  void uploads.cancel(ws).catch(error=>console.error('[uploads]',error.message));
+  folderPicker.cancel();downloads.cancel();
+  peer?.send(JSON.stringify({kind:'disconnect'}));
+}});
 let browserConnections=0,nativeHostConnections=0;
 const bootstrapReader=require('./web-bootstrap.cjs')(message=>{
   if(peer?.readyState!==1)throw Error('App renderer unavailable');
   peer.send(JSON.stringify(message));
 });
 ipcMain.on('codex_desktop:connect-app-host',event=>{if(event.sender.id===relayContentsId)nativeHostConnections++;});
-const folderPicker=require('./web-folders.cjs')({send:message=>client?.send(codec.pack(message))});
+const folderPicker=require('./web-folders.cjs')({send:message=>connections.client?.send(codec.pack(message))});
 const uploads=require('./web-uploads.cjs')(path.join(process.env.CHATGPT_WEB_ROOT,'.uploads'));
 const {resourcePath,serveFile}=require('./web-files.cjs');
-const downloads=require('./web-downloads.cjs')(path.join(process.env.CHATGPT_WEB_ROOT,'.downloads'),{send:message=>client?.send(codec.pack(message))});
+const downloads=require('./web-downloads.cjs')(path.join(process.env.CHATGPT_WEB_ROOT,'.downloads'),{send:(message,owner)=>{if(owner===connections.client?.webClientId&&connections.client?.readyState===1)connections.client.send(codec.pack(message));}});
 downloads.install();
 const nativeSaveDialog=dialog.showSaveDialog.bind(dialog);
 dialog.showSaveDialog=(...args)=>{
   const owner=args.length>1?args[0]:null;
-  if(client?.readyState===1&&(!owner||owner.webContents?.id===relayContentsId))return downloads.open(args.length>1?args[1]:args[0]);
+  if(connections.client?.readyState===1&&(!owner||owner.webContents?.id===relayContentsId))return downloads.open(args.length>1?args[1]:args[0],connections.client.webClientId);
   return nativeSaveDialog(...args);
 };
 const nativeOpenDialog=dialog.showOpenDialog.bind(dialog);
 dialog.showOpenDialog=(...args)=>{
   const options=args.length>1?args[1]:args[0];
   const owner=args.length>1?args[0]:null;
-  if(client?.readyState===1 && (options?.properties?.includes('openDirectory') || options?.properties?.includes('openFile')) && (!owner || owner.webContents?.id===relayContentsId)){
+  if(connections.client?.readyState===1 && (options?.properties?.includes('openDirectory') || options?.properties?.includes('openFile')) && (!owner || owner.webContents?.id===relayContentsId)){
     return folderPicker.open(options);
   }
   return nativeOpenDialog(...args);
@@ -70,9 +74,9 @@ const server = http.createServer(async(req,res)=>{
   }
   if(u.pathname==='/bridge/upload' && req.method==='POST'){
     if(!access.allowsWebSocket(req)||req.headers['x-chatgpt-web-upload']!=='1')return json(res,403,{error:'Invalid upload origin'});
-    const owner=client;
+    const owner=connections.client;
     if(!owner||owner.readyState!==1)return json(res,409,{error:'请先连接 Web UI'});
-    uploads.receive(req,owner,()=>client===owner&&owner.readyState===1)
+    uploads.receive(req,owner,()=>connections.client===owner&&owner.readyState===1)
       .then(value=>json(res,201,value))
       .catch(error=>{if(!res.destroyed){req.resume();json(res,error.status||400,{error:error.message});}});
     return;
@@ -82,7 +86,7 @@ const server = http.createServer(async(req,res)=>{
     try{return json(res,200,await bootstrapReader.read());}
     catch{return json(res,503,{error:'App renderer is not ready'});}
   }
-  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!client,rendererState,hostRenderer,persistentHost:hostRenderer==='minimal',browserConnections,nativeHostConnections,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
+  if(u.pathname==='/bridge/status') return json(res,200,{peer:!!peer,snapshot:!!snapshot,browser:!!connections.client,clientId:connections.client?.webClientId??null,rendererState,hostRenderer,persistentHost:hostRenderer==='minimal',browserConnections,nativeHostConnections,uptimeMs:Math.round(performance.now()-hostStartedAt),rendererReadyMs,staticVersion:staticManifest.version});
   if(!['GET','HEAD'].includes(req.method)) {res.writeHead(405);return res.end();}
   try {
     const versioned=u.pathname.startsWith(staticPrefix);
@@ -97,11 +101,14 @@ const wss = new WebSocketServer({noServer:true,maxPayload:32*1024*1024});
 server.on('upgrade',(req,socket,head)=>{
   const u=new URL(req.url,origin);
   if(u.pathname!=='/bridge/socket' || !authorized(req) || !access.allowsWebSocket(req)) {socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');return;}
-  if(client) {socket.end('HTTP/1.1 409 Conflict\r\n\r\n');return;}
+  const expected=u.searchParams.get('takeover');
+  if(!connections.canAdmit(expected)) {socket.end('HTTP/1.1 409 Conflict\r\n\r\n');return;}
   wss.handleUpgrade(req,socket,head,ws=>{
     browserConnections++;
-    client=ws;heartbeat(ws,{onTick:()=>ws.send(codec.pack({kind:'heartbeat'}))});
+    if(!connections.admit(ws,expected)){ws.close(4009,'Connection changed');return;}
+    heartbeat(ws,{onTick:()=>ws.send(codec.pack({kind:'heartbeat'}))});
     ws.on('message',async data=>{
+      if(connections.client!==ws)return;
       let message;try{message=codec.unpack(data.toString());}catch{ws.close(1007,'Invalid message');return;}
       if(message.kind==='call' && typeof message.method==='string' && (message.method.startsWith('folder.')||message.method.startsWith('upload.')||message.method==='download.choose')){
         try{
@@ -118,10 +125,9 @@ server.on('upgrade',(req,socket,head)=>{
         catch(error){if(ws.readyState===1)ws.send(codec.pack({kind:'result',id:message.id,error:error.message}));}
         return;
       }
-      if(peer?.readyState===1)peer.send(data.toString());
+      if(peer?.readyState===1)peer.send(codec.pack({...message,session:ws.webClientId}));
       else ws.close(1013,'App renderer unavailable');
     });
-    ws.on('close',()=>{void uploads.cancel(ws).catch(error=>console.error('[uploads]',error.message));if(client!==ws)return;folderPicker.cancel();downloads.cancel();client=null;peer?.send(JSON.stringify({kind:'disconnect'}));});
   });
 });
 const relayTargets = new Set();
@@ -136,7 +142,7 @@ ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
   if(message.kind==='host-error'){
     peer=null;snapshot=null;bootstrapReader.reset();rendererState='host connection failed';rendererReadyMs=null;
     console.error('[chatgpt-web] 宿主服务连接失效，请重启服务。',codec.decode(message.value));
-    client?.close(1012,'App host connection failed');return;
+    connections.client?.close(1012,'App host connection failed');return;
   }
   if(message.kind==='snapshot'){
     const wc=event.sender;
@@ -148,14 +154,14 @@ ipcMain.on('chatgpt-web:from-relay',(event,data)=>{
     const eventValue=codec.decode(message.value);
     // Without a native UI, undeliverable chunks have no consumer to acknowledge
     // them. Release the host sender's flow-control wait instead of retaining it.
-    if(hostRenderer==='minimal'&&client?.readyState!==1&&eventValue?.marker==='codex-host-chunked-message-v1'&&typeof eventValue.transferId==='string'&&Number.isSafeInteger(eventValue.sequence)){
+    if(hostRenderer==='minimal'&&connections.client?.readyState!==1&&eventValue?.marker==='codex-host-chunked-message-v1'&&typeof eventValue.transferId==='string'&&Number.isSafeInteger(eventValue.sequence)){
       peer?.send(JSON.stringify({kind:'ack-discarded-chunk',transferId:eventValue.transferId,sequence:eventValue.sequence}));
     }
     if(eventValue?.type==='shared-object-updated'){
       const current=codec.decode(snapshot);current.shared[eventValue.key]=eventValue.value;snapshot=codec.encode(current);
     }
   }
-  if(client?.readyState===1)client.send(data);
+  connections.forward(data,message.session);
 });
 server.on('error',err=>{console.error('[chatgpt-web]',err.message);app.quit();});
 server.listen(port,access.host,()=>{
@@ -173,7 +179,7 @@ app.on('web-contents-created',(_event,wc)=>{
     if(destroyed)relayContentsId=null;
     peer=null;snapshot=null;bootstrapReader.reset();rendererState=reason;rendererReadyMs=null;
     console.warn('[chatgpt-web]',reason);
-    client?.close(1012,reason);
+    connections.client?.close(1012,reason);
   };
   watchRenderer(wc,invalidate);
   wc.on('did-finish-load',()=>{
@@ -190,4 +196,4 @@ app.on('web-contents-created',(_event,wc)=>{
     wc.executeJavaScript(`${codec};(${source})()`).catch(e=>{if(current===generation)invalidate('App bridge injection failed');console.error('[chatgpt-web] injection failed',e.message);});
   });
 });
-app.on('before-quit',()=>{bootstrapReader.reset();client?.close();peer?.close();server.close();});
+app.on('before-quit',()=>{bootstrapReader.reset();connections.client?.close();peer?.close();server.close();});

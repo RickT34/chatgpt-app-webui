@@ -52,3 +52,18 @@ test('unsubscribe releases worker listeners; disconnect closes ports and minimal
   assert.equal(calls.filter(value=>value.type==='shared-object-unsubscribe').length,minimal?1:0);
  }
 });
+
+test('late results and port responses retain the old session after a replacement connects',async()=>{
+ let receive,finish;const sent=[],channels=[];
+ const window={electronBridge:{subscribeToSystemThemeVariant(){},sendMessageFromView:()=>new Promise(resolve=>{finish=resolve;})},
+  chatgptWebCodec:codec,chatgptWebTransport:{send:data=>sent.push(codec.unpack(data)),subscribe:fn=>{receive=fn;},getSnapshot:()=>({})},
+  addEventListener(){},postMessage(){},location:{origin:'app://-'}};
+ class Channel{constructor(){this.port1={close(){}};this.port2={};channels.push(this);}}
+ await new Function('window','MessageChannel','return ('+fs.readFileSync('bridge/relay.js','utf8')+')()')(window,Channel);
+ const pending=receive(codec.pack({kind:'call',id:1,session:'old',method:'sendMessageFromView',args:[{}]}));
+ await receive(codec.pack({kind:'port-open',id:2,session:'old'}));const latePort=channels[0].port1.onmessage;
+ await receive(codec.pack({kind:'disconnect'}));await receive(codec.pack({kind:'port-open',id:2,session:'new'}));
+ finish('old result');await pending;latePort({data:'old port data'});
+ assert.equal(sent.find(m=>m.kind==='result').session,'old');assert.equal(sent.at(-1).session,'old');
+ channels[1].port1.onmessage({data:'new port data'});assert.equal(sent.at(-1).session,'new');
+});

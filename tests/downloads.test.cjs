@@ -24,3 +24,17 @@ test('save dialogs create isolated files and publish only completed writes',asyn
   const canceled=downloads.open();downloads.cancel();assert.equal((await canceled).canceled,true);
  }finally{restore();await fs.promises.rm(root,{recursive:true,force:true});}
 });
+
+test('a delayed download notification retains its initiating browser after takeover',async()=>{
+ const root=await fs.promises.mkdtemp(path.join(os.tmpdir(),'web-download-owner-'));
+ const sent=[];const manager=require('../bridge/downloads.cjs')(root,{send:(message,owner)=>sent.push({message,owner})});
+ const restore=manager.install();
+ try{
+  const first=manager.open({defaultPath:'old.txt'},'old-browser');const id=sent[0].message.value.id;
+  await manager.choose(id,'old.txt');const file=(await first).filePath;
+  const second=manager.open({defaultPath:'new.txt'},'new-browser');
+  await fs.promises.writeFile(file,'finished after takeover');
+  const notification=sent.find(value=>value.message.kind==='download-ready');assert.equal(notification.owner,'old-browser');
+  manager.cancel();assert((await second).canceled);
+ }finally{restore();await fs.promises.rm(root,{recursive:true,force:true});}
+});
