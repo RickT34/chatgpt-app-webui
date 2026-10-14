@@ -3,11 +3,11 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 function setup(){
- const listeners=new Map(),calls=[],requests=[],status={textContent:''},location={href:'http://test/local/thread'};
+ const listeners=new Map(),calls=[],requests=[],status={children:[],get textContent(){return this.children.map(x=>x.textContent).join('');},replaceChildren(){this.children=[];},append(...nodes){this.children.push(...nodes);},remove(){this.removed=true;}},location={href:'http://test/local/thread'};
  const window={addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)};
  class Transfer{constructor(){this.files=[];this.items={add:file=>this.files.push(file)};}}
  class Drop{constructor(type,options){this.type=type;Object.assign(this,options);}}
- const context={window,document:{getElementById:()=>status},location,setTimeout,clearTimeout,AbortController,WeakMap,WeakSet,Set,Map,Array,crypto,DataTransfer:Transfer,DragEvent:Drop,
+ const context={window,document:{getElementById:()=>status,createElement:()=>({})},location,setTimeout,clearTimeout,AbortController,WeakMap,WeakSet,Set,Map,Array,crypto,DataTransfer:Transfer,DragEvent:Drop,
   fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({id:'upload-'+requests.length,path:'/host/upload-'+requests.length,name:'test.txt'})};}};
  vm.runInNewContext(fs.readFileSync('bridge/attachments.js','utf8'),context);
  const adapter=window.chatgptWebAttachments(async(...args)=>{calls.push(args);});
@@ -32,4 +32,12 @@ test('text drags pass through and client directories are rejected before upload'
  await state.listeners.get('drop')({dataTransfer:{files:[]},preventDefault(){prevented=true;}});assert.equal(prevented,false);
  await state.listeners.get('drop')({target:{},dataTransfer:{files:[{}],items:[{webkitGetAsEntry:()=>({isDirectory:true})}]},preventDefault(){},stopImmediatePropagation(){}});
  assert.equal(state.requests.length,0);assert.match(state.status.textContent,/文件夹/);
+});
+test('dismissed upload progress stays hidden when the same drop completes',async()=>{
+ const state=setup(),file=new File(['hello'],'test.txt');let replayed=false;
+ const target={isConnected:true,dispatchEvent(){replayed=true;}};
+ const dropped=state.listeners.get('drop')({target,dataTransfer:{files:[file],items:[]},preventDefault(){},stopImmediatePropagation(){}});
+ state.status.children.find(n=>n.textContent==='关闭').onclick();
+ await dropped;assert(state.status.removed);assert(replayed);
+ assert.match(state.status.textContent,/正在上传/,'completion must not recreate a dismissed notification');
 });

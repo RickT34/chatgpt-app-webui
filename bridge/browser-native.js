@@ -13,7 +13,8 @@ window.chatgptWebNative=function(call){
   const escape=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();canceled();}};
   window.addEventListener('keydown',escape,true);element.oncancel=e=>{e.preventDefault();canceled();};
   const close=()=>{if(done)return;done=true;window.removeEventListener('keydown',escape,true);element.close();element.remove();if(previous?.isConnected)previous.focus();};
-  closePrompt=()=>canceled();
+  const dismiss=button('×',()=>{if(!done)canceled();});dismiss.className='web-dialog-close';dismiss.setAttribute('aria-label','关闭');element.append(dismiss);
+  closePrompt=()=>{if(!done)canceled();};
   return {element,close,setCancel:fn=>{canceled=fn;},show:()=>element.showModal()};
  }
  function button(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=fn;return b;}

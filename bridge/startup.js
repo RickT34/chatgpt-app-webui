@@ -59,21 +59,23 @@
   const bootstrapReady=bootstrap(fetch);bootstrapReady.catch(()=>{});
   const started=performance.now(),timings=[];
   const mark=phase=>{const ms=Math.round(performance.now()-started);timings.push({phase,ms});performance.mark?.(`chatgpt-web:${phase}`);};
-  let panel,label,button,timer,failed=false,finished=false,hostReady=false,entryReady=false,contentReady=false,stage='下载页面资源',confirmation=null;
+  let panel,label,button,timer,failed=false,finished=false,hostReady=false,entryReady=false,contentReady=false,stage='下载页面资源',confirmation=null,dismissed=false,warning=null;
   const clean=()=>{clearTimeout(timer);};
+  const dismiss=()=>{dismissed=true;panel?.remove();panel=null;if(confirmation){const {reject}=confirmation;confirmation=null;const error=Error('已取消接管连接');error.name='AbortError';reject(error);}};
   const paint=()=>{
+   if(dismissed)return;
    if(!panel){
     panel=document.createElement('div');panel.setAttribute('role','status');
     panel.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:90vw;padding:16px;background:#202124;color:#fff;border:1px solid #777;border-radius:10px;font:14px sans-serif;white-space:pre-wrap';
-    label=document.createElement('div');button=document.createElement('button');button.textContent='重新加载';button.style.cssText='margin-top:12px;padding:6px 12px;cursor:pointer';button.onclick=()=>location.reload();panel.append(label,button);(document.body||document.documentElement).append(panel);
+    label=document.createElement('div');button=document.createElement('button');button.textContent='重新加载';button.style.cssText='margin-top:12px;padding:6px 12px;cursor:pointer';button.onclick=()=>location.reload();const close=document.createElement('button');close.type='button';close.textContent='关闭';close.setAttribute('aria-label','关闭提示');close.style.cssText='margin-left:12px;padding:6px 12px;cursor:pointer';close.onclick=dismiss;panel.append(label,button,close);(document.body||document.documentElement).append(panel);
    }
-   label.textContent=failed||confirmation?stage:`正在${stage}…`;button.hidden=!failed&&!confirmation;
+   label.textContent=warning||(failed||confirmation?stage:`正在${stage}…`);button.hidden=!failed&&!confirmation&&!warning;
    button.textContent=confirmation?'接管连接':'重新加载';
    button.onclick=()=>{if(confirmation){const {resolve}=confirmation;confirmation=null;button.hidden=true;resolve();}else location.reload();};
   };
-  const fail=error=>{if(failed)return;confirmation?.reject(error);confirmation=null;failed=true;finished=false;clean();stage=`${stage}失败：${error?.message||String(error)}`;paint();window.dispatchEvent(new Event('chatgpt-web:failed'));};
-  const setStage=(value,ms=120000)=>{if(failed||finished)return;stage=value;mark(value);clearTimeout(timer);timer=setTimeout(()=>fail(Error('等待超时，可以重试；若反复出现，请检查宿主 App 日志。')),ms);paint();};
-  const confirmTakeover=()=>{if(failed)return Promise.reject(Error('启动已中止，请重试。'));clean();stage='已有其他页面连接。接管后旧页面将断开，正在运行的后端任务不会主动停止。';return new Promise((resolve,reject)=>{confirmation={resolve,reject};paint();});};
+  const fail=(error,{advisory=false}={})=>{if(error?.name==='AbortError'||failed)return;if(advisory){if(finished)return;clean();warning=`${stage}提示：${error?.message||String(error)}`;paint();return;}warning=null;confirmation?.reject(error);confirmation=null;failed=true;finished=false;clean();stage=`${stage}失败：${error?.message||String(error)}`;paint();window.dispatchEvent(new Event('chatgpt-web:failed'));};
+  const setStage=(value,ms=120000)=>{if(failed||finished)return;stage=value;warning=null;mark(value);clearTimeout(timer);timer=setTimeout(()=>fail(Error('等待超时，可以重试；若反复出现，请检查宿主 App 日志。'),{advisory:true}),ms);paint();};
+  const confirmTakeover=()=>{if(failed)return Promise.reject(Error('启动已中止，请重试。'));clean();dismissed=false;warning=null;stage='已有其他页面连接。接管后旧页面将断开，正在运行的后端任务不会主动停止。';return new Promise((resolve,reject)=>{confirmation={resolve,reject};paint();});};
   const check=()=>{
    if(!failed&&!finished&&hostReady&&entryReady&&contentReady){finished=true;mark('ready');clean();panel?.remove();panel=null;window.dispatchEvent(new Event('chatgpt-web:ready'));console.info('[chatgpt-web] startup timings (ms)',timings);}
   };
@@ -87,9 +89,9 @@
     setStage('下载页面资源');
     fail(Error(`页面资源下载失败（${tag}：${resource}），请检查网络、反向代理或刷新页面后重试。`));
    }
-   else if(event.target===window)fail(Error('页面初始化异常，请重试；详细错误见浏览器控制台。'));
+   else if(event.target===window)fail(Error('页面初始化异常，请重试；详细错误见浏览器控制台。'),{advisory:true});
   },true);
-  window.addEventListener('unhandledrejection',()=>{if(!finished&&!failed)fail(Error('页面初始化异常，请重试；详细错误见浏览器控制台。'));});
+  window.addEventListener('unhandledrejection',()=>{if(!finished&&!failed)fail(Error('页面初始化异常，请重试；详细错误见浏览器控制台。'),{advisory:true});});
   setStage(stage);
   return {wait,bootstrap,bootstrapReady,connect,acquire,confirmTakeover,stage:setStage,fail,get timings(){return timings.map(value=>({...value}));},get failed(){return failed;},hostReady(){hostReady=true;mark('host_ready');setStage('初始化界面');check();},entryReady(){entryReady=true;mark('entry_ready');check();},phase(value){if(value==='first_content_visible'&&!contentReady){contentReady=true;mark(value);check();}}};
  }

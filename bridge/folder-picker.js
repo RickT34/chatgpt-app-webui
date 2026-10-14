@@ -13,7 +13,7 @@ window.chatgptWebFolderPicker=function(call){
   for(const type of ['pointerdown','pointerup','click','focusin','focusout'])modal.addEventListener(type,event=>event.stopPropagation());
   const onEscape=event=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();void cancel();}};
   window.addEventListener('keydown',onEscape,true);
-  modal.innerHTML=`<form class="folder-path-form"><h2>选择项目文件夹</h2><p>浏览运行 App 的宿主机文件系统</p><div class="folder-toolbar"><button type="button" data-action="home">主目录</button><button type="button" data-action="up">上一级</button><input aria-label="宿主机文件夹路径" required><button type="submit">前往</button></div></form><label class="folder-hidden"><input type="checkbox"> 显示隐藏文件夹</label><p class="folder-status" role="status"></p><div class="folder-list" aria-label="宿主机文件夹列表"></div><footer><button type="button" data-action="cancel">取消</button><button type="button" data-action="select">选择此文件夹</button></footer>`;
+  modal.innerHTML=`<button type="button" class="web-dialog-close" data-action="close" aria-label="关闭">×</button><form class="folder-path-form"><h2>选择项目文件夹</h2><p>浏览运行 App 的宿主机文件系统</p><div class="folder-toolbar"><button type="button" data-action="home">主目录</button><button type="button" data-action="up">上一级</button><input aria-label="宿主机文件夹路径" required><button type="submit">前往</button></div></form><label class="folder-hidden"><input type="checkbox"> 显示隐藏文件夹</label><p class="folder-status" role="status"></p><div class="folder-list" aria-label="宿主机文件夹列表"></div><footer><button type="button" data-action="cancel">取消</button><button type="button" data-action="select">选择此文件夹</button></footer>`;
   const input=modal.querySelector('input[required]'), hidden=modal.querySelector('input[type=checkbox]'), list=modal.querySelector('.folder-list'),status=modal.querySelector('.folder-status');
   const select=modal.querySelector('[data-action=select]'),up=modal.querySelector('[data-action=up]');
   let current=request.initialPath,parent=request.home,revision=0,closed=false;
@@ -24,7 +24,7 @@ window.chatgptWebFolderPicker=function(call){
    if(previousFocus?.isConnected)previousFocus.focus();
   }
   closeCurrent=dispose;
-  async function cancel(){try{await call('folder.cancel',request.id);}finally{dispose();}}
+  async function cancel(){if(closed)return;dispose();await call('folder.cancel',request.id).catch(()=>{});}
   async function load(target){
    const version=++revision;select.disabled=true;status.textContent='正在读取文件夹…';
    try{
@@ -40,6 +40,7 @@ window.chatgptWebFolderPicker=function(call){
   modal.querySelector('[data-action=home]').onclick=()=>load(request.home);
   up.onclick=()=>load(parent);hidden.onchange=()=>load(current);
   modal.querySelector('[data-action=cancel]').onclick=()=>{void cancel();};
+  modal.querySelector('[data-action=close]').onclick=()=>{void cancel();};
   modal.oncancel=event=>{event.preventDefault();void cancel();};
   select.onclick=async()=>{
    select.disabled=true;
