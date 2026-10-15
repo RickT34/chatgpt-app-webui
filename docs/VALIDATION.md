@@ -250,3 +250,20 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - Node 96 项、Python 18 项通过。新增测试覆盖连接接管后拒绝旧帧、跨宿主 guest 拒绝、并发捕获合并、静态图像去重、失败后恢复、输入参数校验、Unicode 文本、debugger 所有权、等比缩放留白坐标、guest ID 服务端解析和关闭期间丢弃迟到画面。按 review-testing 复核测试副作用与资源释放。
 - 独立目录完整 prepare 成功生成 20,131 个资源；检查新增原生模块、preload 方法、网页脚本及现有 CSP 的 blob 图像支持。最终静态版本前缀 `d52bc9b687b1`。记录与截图在 `.logs/browser-surface-investigation/`。
 - 范围：本地测试页验证真实 native guest 的显示/输入链路，未在用户域名的完整 React 面板中验收，也未验证所有输入法、原生弹窗或持续视频帧率。正式服务需按原命令重启并刷新后由用户复测。未进行 Docker 测试。
+
+## 2026-10-15 · 粘贴附件
+
+- `npm test`：103 项通过。新增 7 项覆盖图片/多文件上传后仅回放一次、文字/HTML 快照保留、仅 items 暴露文件的剪贴板、其他输入区域和纯文本透传、切换会话取消投递、部分上传失败清理、断线中止及 32 MiB 限制。已有拖拽和上传服务回归通过。
+- 按 review-testing 检查真实副作用：验证上传正文、宿主路径映射、保留/丢弃批次、断线 AbortSignal 和监听器移除，而不仅断言成功返回。
+- 静态核对当前打包的 `app-initial-ed5807835d97.js`：编辑器 `handlePaste` 消费 `clipboardData`，通过 Qma/Rma 提取 files/items，并触发 pasted-images / pasted-files；编辑器标记为 `data-codex-composer`。粘贴回放保留原事件类型，不模拟拖拽或自行修改原版附件状态。
+- REA 对提取的 BP/E5n 路由函数作有界静态分析，父证据 `ev_600e86a33adf98033e8f840c1d76b55d72c962137f7f2517e2a35f822ec47dfb`；该提取范围不包含整个原版编辑器，未将静态分析解释为交互通过。
+- 按用户要求，真实粘贴交互由用户测试；本轮未启动浏览器交互、未重启正式宿主、未进行 Docker 测试。调查和测试日志在 `.logs/paste-investigation/`。
+
+
+### 2026-10-15 · 修正“已上传但无附件”
+
+- 第一版 103 项测试只验证了粘贴事件回放，没有覆盖原版附件分支实际如何使用宿主路径；用户真实交互发现附件未出现。
+- 从当前 app-initial 原样提取 `$q` / `$ma`，在 Node VM 中执行原函数：给定相同的已上传路径，source=paste 跳过路径并调用图片持久化；source=drop 直接返回路径且不再次持久化。静态提取 `_Qe` 确认官方文件 drop 接收器调用 preventDefault，再以 source=drop 添加附件。
+- 对上述 3 个原函数进行 REA 有界分析，父证据 `ev_30f7b3fa6bfec742b46f123ae5ad23dd039a47ab53e47c9bb43d744ed726e316`，两文件共 3,365 字符、0 解析失败；范围与字节摘要记录在 `.logs/paste-investigation/fix-source.json`，不代表完整界面验收。
+- 回放改为文件 drop，保留路径映射，去掉混合剪贴板路径文字/HTML；接收器未消费时丢弃上传并报错。新增未接收不报成功、图片经过 drop 路径、接收后才保留文件的回归断言。Node 共 105 项通过，`git diff --check` 通过。
+- 未进行真实浏览器交互或 Docker 测试，未重启正式宿主；依用户要求交由用户重启、刷新后复测。

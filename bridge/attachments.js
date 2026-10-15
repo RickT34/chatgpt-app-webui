@@ -91,37 +91,61 @@ window.chatgptWebAttachments=function(call){
   };
   (owner||document.body).append(modal);modal.showModal();
  }
+ // Snapshot files synchronously; the native clipboard expires after dispatch.
+ // Deliver uploaded files through the drop path: the original image-paste
+ // branch deliberately ignores getPathForFile and persists the bytes again.
+ async function onPaste(event){
+  if(!connected||event.defaultPrevented||replayed.has(event))return;
+  if(!event.target?.closest?.('[data-codex-composer]'))return;
+  const data=event.clipboardData;if(!data)return;
+  const listed=Array.from(data.files||[]),items=Array.from(data.items||[]);
+  const itemFiles=items.filter(item=>item.kind==='file').map(item=>item.getAsFile()).filter(Boolean);
+  const files=itemFiles.length>listed.length?itemFiles:listed;
+  if(!files.length)return; // Leave ordinary text/HTML paste to the editor.
+  event.preventDefault();event.stopImmediatePropagation();
+  if(items.some(item=>item.webkitGetAsEntry?.()?.isDirectory)){notice('暂不支持粘贴客户端文件夹，请选择文件。');return;}
+  await uploadAndReplay(event,files,true);
+ }
  // Capture native file drops before React reads the files, upload them, then
  // replay once with the same File objects and a synchronous host-path mapping.
  async function onDrop(event){
   if(!connected)return;
   if(replayed.has(event)||!event.dataTransfer?.files?.length)return;
   const files=Array.from(event.dataTransfer.files);
-  const target=event.target,route=location.href;
+  const target=event.target;
   event.preventDefault();event.stopImmediatePropagation();
   if(target.closest?.('.host-folder-picker')){notice('请将文件拖到对话输入框，或使用窗口内的选择按钮。');return;}
   const hasDirectory=Array.from(event.dataTransfer.items||[]).some(item=>item.webkitGetAsEntry?.()?.isDirectory);
   if(hasDirectory){notice('暂不支持拖入客户端文件夹，请选择文件，或使用宿主机文件选择器。');return;}
+  await uploadAndReplay(event,files);
+ }
+ async function uploadAndReplay(event,files,fromPaste=false){
+  const target=event.target,route=location.href;
   const controller=new AbortController();controllers.add(controller);const uploaded=[],group=crypto.randomUUID(),notification={dismissed:false};
   try{
    for(const file of files){notice('正在上传 '+file.name,false,notification);uploaded.push(await upload(file,controller.signal,group));}
-   if(!target.isConnected||location.href!==route)throw Error('对话页面已改变，请回到目标对话重新添加附件');
+   if(!connected||!target.isConnected||location.href!==route)throw Error('对话页面已改变或连接断开，请回到目标对话重新添加附件');
    const transfer=new DataTransfer();
    files.forEach((file,index)=>{filePaths.set(file,uploaded[index].path);transfer.items.add(file);});
    Array.from(transfer.files).forEach((file,index)=>filePaths.set(file,uploaded[index].path));
-   const replay=new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:event.clientX,clientY:event.clientY});
+   const bounds=fromPaste?target.getBoundingClientRect():null;
+   // No clipboard text/HTML: OS file paths must not become editor text, and
+   // ProseMirror must leave the file-only drop to the attachment receiver.
+   const replay=new DragEvent('drop',{bubbles:true,cancelable:true,composed:true,dataTransfer:transfer,
+    clientX:bounds?bounds.left+bounds.width/2:event.clientX,clientY:bounds?bounds.top+bounds.height/2:event.clientY});
    replayed.add(replay);
-   // Keep files before dispatch: the original App may reference them later.
+   // The official file-drop handler calls preventDefault when it consumes a
+   // transfer. Do not retain orphan uploads or report success if nobody did.
+   if(target.dispatchEvent(replay)!==false)throw Error('输入框未接收附件，请点击对话输入框后重试');
    await call('upload.retain',uploaded.map(x=>x.id));
-   if(!target.isConnected||location.href!==route)throw Error('对话页面已改变，请重新添加附件');
-   target.dispatchEvent(replay);notice(`${files.length} 个文件已上传，请确认输入框中的附件。`,true,notification);
+   notice(`${files.length} 个文件已交给输入框处理。`,true,notification);
   }catch(error){if(connected)await call('upload.discardGroup',group).catch(()=>{});notice('无法添加文件：'+error.message,false,notification);}
   finally{controllers.delete(controller);}
  }
  const onDragOver=event=>{if(Array.from(event.dataTransfer?.types||[]).includes('Files'))event.preventDefault();};
- window.addEventListener('drop',onDrop,true);window.addEventListener('dragover',onDragOver,true);
+ window.addEventListener('drop',onDrop,true);window.addEventListener('dragover',onDragOver,true);window.addEventListener('paste',onPaste,true);
  return {
   open,getPathForFile:file=>filePaths.get(file)||null,
-  close(){connected=false;closeCurrent();for(const controller of controllers)controller.abort();window.removeEventListener('drop',onDrop,true);window.removeEventListener('dragover',onDragOver,true);},
+  close(){connected=false;closeCurrent();for(const controller of controllers)controller.abort();window.removeEventListener('drop',onDrop,true);window.removeEventListener('dragover',onDragOver,true);window.removeEventListener('paste',onPaste,true);},
  };
 };
