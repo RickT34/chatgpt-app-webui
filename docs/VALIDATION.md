@@ -267,3 +267,11 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 对上述 3 个原函数进行 REA 有界分析，父证据 `ev_30f7b3fa6bfec742b46f123ae5ad23dd039a47ab53e47c9bb43d744ed726e316`，两文件共 3,365 字符、0 解析失败；范围与字节摘要记录在 `.logs/paste-investigation/fix-source.json`，不代表完整界面验收。
 - 回放改为文件 drop，保留路径映射，去掉混合剪贴板路径文字/HTML；接收器未消费时丢弃上传并报错。新增未接收不报成功、图片经过 drop 路径、接收后才保留文件的回归断言。Node 共 105 项通过，`git diff --check` 通过。
 - 未进行真实浏览器交互或 Docker 测试，未重启正式宿主；依用户要求交由用户重启、刷新后复测。
+
+## 2026-10-15 · 原版会话面板空白复现与修复
+
+- 使用独立宿主和 profile，在原版 UI 打开已有“测试 Codex 内置浏览器”会话，通过原版新标签页及地址栏导航到本地 fixture。修复前标题正常、正文空白；实时 DOM 显示父容器可见且为 664×572，WebView 为 inline、实际 0×0，没有挂载图片。
+- 修复后在同一原版 UI 流程中，WebView 为 block、实际 664×572，图片 naturalWidth 大于 0，客户端截图显示网页正文。在图片上的真实坐标点击输入框、输入“原版面板测试通过”、点击 Apply；原生输入值与结果文字均匹配。截图保存在 `.logs/browser-panel-investigation/before.png` 与 `after.png`。
+- 本轮不依赖独立预览容器判断 UI 通过。隔离宿主仍用正式包的 HTML、React UI、CSS、客户端和原生链路；仅测试站点的 browser-view.js 路径返回工作区修正版，并使用独立静态版本前缀避开旧缓存。
+- Node 108 项通过。新增三项测试覆盖空 inline 元素的首次取图、隐藏/恢复、取图期间断开释放；将首帧测试运行在 HEAD 旧版代码上，得到预期失败（实际请求 0，预期 1），运行在修正版上通过。按 review-testing 检查回归保护与释放副作用。`git diff --check` 通过；未进行 Docker 测试。
+- 原版面板静态布局依据：从当前 ASAR 的 app-shared-2d77298f0100.js 提取 18,096 字节的承载实现，REA Evidence `ev_2413693f481cd8419d028168022bad7e1ffcee3929162a1132f1a2c26b3c0f24`。静态分析仅支持布局路径判断；上述 0×0、图片显示和交互结论来自实际客户端验证。

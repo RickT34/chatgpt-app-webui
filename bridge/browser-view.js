@@ -20,6 +20,12 @@
   }
   return true;
  }
+ function prepareLayout(element){
+  // Electron supplies a display box for <webview>; an ordinary browser treats
+  // it as an empty inline element and ignores its CSS width/height. Establish
+  // layout before checking visibility, otherwise the first frame never starts.
+  if(getComputedStyle(element).display==='inline')element.style.display='block';
+ }
  function create(call,{writeText=()=>{}}={}){
   const views=new Map();let closed=false,timer;
   const routeOf=element=>({conversationId:element.getAttribute('data-browser-sidebar-conversation-id'),browserTabId:element.getAttribute('data-browser-sidebar-browser-tab-id')});
@@ -101,6 +107,7 @@
     const elements=Array.from(document.querySelectorAll('webview[data-browser-sidebar-conversation-id][data-browser-sidebar-browser-tab-id]'));
     for(const [element,state] of views)if(!element.isConnected||!sameRoute(state.route,routeOf(element))){state.dispose();views.delete(element);}
     for(const element of elements){
+     prepareLayout(element);
      if(closed||!visible(element))continue;
      const state=views.get(element)??mount(element),route={...state.route};
      try{
