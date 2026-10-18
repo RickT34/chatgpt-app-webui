@@ -24,4 +24,4 @@ node_modules/
 compose.override.yaml
 compose.override.yml
 
-run.sh
+boot

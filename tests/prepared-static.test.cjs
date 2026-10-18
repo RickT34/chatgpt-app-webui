@@ -16,6 +16,7 @@ const content={
  'assets/initial.js':'export default "你好";'.repeat(1000),
  'assets/app.css':'body{color:red}',
  'assets/image.png':Buffer.from([0,255,2,3]),
+ 'assets/zh-CN-test.js':'export default {"settings.general.openLinkInTargetPreference.externalBrowser.label":`默认浏览器`};',
  'bridge/rpc-client.mjs':'import "./capnweb.js";',
  'bridge/capnweb.js':'export const value=1;',
  'bridge/entry.js':entryScript(html),
@@ -39,6 +40,8 @@ async function serving(output,manifest,run){
 test('preparation rewrites exact origins, preloads startup chunks and reuses unchanged disk objects',()=>fixture(async(manifest,options)=>{
  const item=manifest.entries['assets/shared.js'];
  const body=fs.readFileSync(path.join(options.output,'objects',item.variants.identity.file)).toString();
+ const labels=manifest.entries['assets/zh-CN-test.js'];
+ assert.match(fs.readFileSync(path.join(options.output,'objects',labels.variants.identity.file),'utf8'),/客户端浏览器（新标签页）/);
  assert.match(body,/origin="https:\/\/one.example"/);assert.match(body,/sentence mentioning app:\/\/fs/);
  assert(manifest.preloads.includes('assets/initial.js'));assert(manifest.preloads.includes('bridge/rpc-client.mjs'));
  assert(!manifest.preloads.includes('assets/image.png'));

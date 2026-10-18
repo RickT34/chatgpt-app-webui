@@ -35,6 +35,20 @@ window.chatgptWebNative=function(call){
    }));view.element.append(message,input,footer);view.show();
   });
  }
+ function openExternal(value){
+  let url;try{url=new URL(value);}catch{return false;}
+  if(!['http:','https:'].includes(url.protocol))return false;
+  // Opening a blank tab lets us detect popup blocking. Sever the opener before
+  // navigating, so the destination never gains access to the Web UI window.
+  let tab;try{tab=window.open('about:blank','_blank');}catch{}
+  if(tab){tab.opener=null;tab.location.replace(url.href);return true;}
+  const box=document.createElement('div');box.className='web-download-notice';box.setAttribute('role','status');
+  const label=document.createElement('span');label.textContent='浏览器拦截了新标签页，请点击打开：';
+  const link=document.createElement('a');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';link.textContent=url.href;
+  link.style.overflowWrap='anywhere';link.onclick=()=>box.remove();
+  box.append(label,link,button('关闭',()=>box.remove()));document.body.append(box);
+  return false;
+ }
  function save(request){
   const view=dialog('保存到客户端'),input=document.createElement('input'),message=document.createElement('p'),footer=document.createElement('footer');
   input.value=request.name;input.setAttribute('aria-label','下载文件名');input.style.cssText='width:100%;padding:10px';message.textContent='文件生成后将在此浏览器下载。';
@@ -49,5 +63,5 @@ window.chatgptWebNative=function(call){
   // Keep the link visible when the browser blocks automatic downloads.
   link.click();
  }
- return {clipboard:{writeText,async readText(){if(!navigator.clipboard?.readText)throw Error('浏览器不支持读取客户端剪贴板');return navigator.clipboard.readText();}},save,ready,close:()=>closePrompt()};
+ return {clipboard:{writeText,async readText(){if(!navigator.clipboard?.readText)throw Error('浏览器不支持读取客户端剪贴板');return navigator.clipboard.readText();}},openExternal,save,ready,close:()=>closePrompt()};
 };

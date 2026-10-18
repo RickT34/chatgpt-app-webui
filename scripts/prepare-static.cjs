@@ -34,7 +34,7 @@ async function build({output,origin,buildKey,files,read,html}){
  for(const name of files){
   let data=await read(name);
   if(/\.m?js$/.test(name)&&!name.startsWith('bridge/')){
-   let source=data.toString();
+   let source=require('../bridge/link-labels.cjs')(data.toString(),name);
    if(/^assets\/app-initial-[\w-]+\.js$/.test(name))source=require('../bridge/statsig-patch.cjs')(source);
    if(/^assets\/app-shared-[\w-]+\.js$/.test(name))source=require('../bridge/statsig-patch.cjs').clientFactory(source);
    if(source.includes('app://fs'))source=source.replace(/(["'`])app:\/\/fs\1/g,JSON.stringify(origin));

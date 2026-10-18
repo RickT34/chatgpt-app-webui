@@ -20,6 +20,7 @@ const connections=require('./web-connections.cjs')({onRelease:ws=>{
   folderPicker.cancel();downloads.cancel();
   peer?.send(JSON.stringify({kind:'disconnect'}));
 }});
+require('./web-external-links.cjs')(require('electron').shell,()=>connections.client,codec.pack);
 let browserConnections=0,nativeHostConnections=0;
 const bootstrapReader=require('./web-bootstrap.cjs')(message=>{
   if(peer?.readyState!==1)throw Error('App renderer unavailable');

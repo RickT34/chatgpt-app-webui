@@ -79,6 +79,7 @@ window.chatgptWebReady=(async()=>{
     lastMessage=Date.now();
     const m=window.chatgptWebResources.rewrite(window.chatgptWebCodec.unpack(event.data));
     if(m.kind==='heartbeat')return;
+    if(m.kind==='external-open'){native.openExternal(m.value);return;}
     if(m.kind==='save-open'){native.save(m.value);return;}
     if(m.kind==='download-ready'){native.ready(m.value);return;}
     if(m.kind==='file-open'){attachments.open(m.value);return;}
