@@ -299,3 +299,10 @@
 - 上一版 `browser-view.js` 先检查可见尺寸，再在 mount 中设置 `display:block`，导致原版面板永远跳过 mount/取图。独立预览页预设了 block 布局，因此没有暴露此缺陷。
 - 现在先为 inline WebView 建立块布局，再判断可见性、挂载图片和取图；原版隐藏状态、透明度和 inactive 面板仍受原来的可见性检查约束。只匹配浏览器路由属性，不处理 MCP App 的其他 WebView。
 - 按原方式重启服务以重新生成版本资源，再刷新客户端。正式宿主未在排查中重启或被接管。
+
+## 2026-10-18 · agent 截图期间客户端面板黑屏
+
+- 原版 `browser-sidebar-browser-use-capture-surface` 事件包含原生截图尺寸。前端收到非空尺寸后，将 WebView 移到用于截图的浮层，设置 opacity=0.001；网页适配器的图片也跟随隐藏。此时 agent 仍能截图，但客户端面板看不到画面。这个触发条件与 URL 是否为 localhost 无关。
+- minimal relay 先把原始事件交给常驻 `browserHost`，保留真实 guest 的截图尺寸；只在转发给网页时将 surfaceSize 置为 null，使原版前端继续使用可见面板布局。activity、viewport、cursor 和释放事件继续传递；full 模式不改写事件。
+- 客户端仍按原生截图比例显示图片，截图尺寸与面板不同会出现留白。隐藏面板的停止取图逻辑保持有效。
+- 生效方式：按原命令重启服务，让准备脚本更新 relay，然后刷新客户端。排查只重启了隔离宿主，未重启正式服务。

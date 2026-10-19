@@ -275,3 +275,11 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 本轮不依赖独立预览容器判断 UI 通过。隔离宿主仍用正式包的 HTML、React UI、CSS、客户端和原生链路；仅测试站点的 browser-view.js 路径返回工作区修正版，并使用独立静态版本前缀避开旧缓存。
 - Node 108 项通过。新增三项测试覆盖空 inline 元素的首次取图、隐藏/恢复、取图期间断开释放；将首帧测试运行在 HEAD 旧版代码上，得到预期失败（实际请求 0，预期 1），运行在修正版上通过。按 review-testing 检查回归保护与释放副作用。`git diff --check` 通过；未进行 Docker 测试。
 - 原版面板静态布局依据：从当前 ASAR 的 app-shared-2d77298f0100.js 提取 18,096 字节的承载实现，REA Evidence `ev_2413693f481cd8419d028168022bad7e1ffcee3929162a1132f1a2c26b3c0f24`。静态分析仅支持布局路径判断；上述 0×0、图片显示和交互结论来自实际客户端验证。
+
+## 2026-10-18 · 本地 Deskling 页面与原生捕获状态
+
+- 用户确认 `http://127.0.0.1:18800/` 的 agent 截图正常而客户端黑屏。在隔离宿主的原版 UI 打开相同地址，初始可见 Deskling 登录页；未输入 token、未登录或操作其远程桌面。
+- 通过隔离测试接口向官方 preload 的 `codex_desktop:message-for-view` 注入原生协议的 browser-use-state=true 和 capture-surface=1280×720，复现面板黑屏：客户端图片仍存在，但父容器 opacity=0.001；原生 guest.capturePage 仍为 1280×720。这里控制的是协议状态，不是完整模型任务执行，也未读取用户正在使用的客户端 DOM。
+- 修正后，同一页面、同一组事件，客户端父容器保持 opacity=1、可见区域 538×572，收到的图像为 1280×720；截图中 Deskling 页面可见，原生截图尺寸也保留。发送释放状态后，原生尺寸恢复为 538×572。
+- Node 113 项通过；新增 relay 测试覆盖 minimal 的客户端布局状态、full 不改写、保留活动与释放事件、原始事件不被修改。原有 browser-host 截图尺寸优先级测试继续通过；新测试对 HEAD 旧 relay 得到预期失败。按 review-testing 复核边界和副作用。
+- 证据在 `.logs/browser-capture-investigation/`：`before.png`、`after.png`、回归日志、独立测试脚本。未进行 Docker 测试；正式宿主未重启或接管。

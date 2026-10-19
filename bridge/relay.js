@@ -51,7 +51,13 @@ async function connectRelay(createHost) {
     if((event.source!==null && event.source!==window) || event.data?.type==='connect-app-host')return;
     browserHost?.handle(event.data);
     const session=event.data?.requestId?fetchOwners.get(event.data.requestId):undefined;
-    try{send({kind:'event',value:event.data,...(session?{session}:{})});}catch{}
+    // Capture geometry belongs to the resident native guest. Applying it to
+    // the remote UI parks its image container in a nearly transparent layer.
+    // Clear that geometry on the web side, including when restoring a tab;
+    // retain the native size above and all activity/viewport/cursor events.
+    const value=minimal&&event.data?.type==='browser-sidebar-browser-use-capture-surface'
+      ?{...event.data,surfaceSize:null}:event.data;
+    try{send({kind:'event',value,...(session?{session}:{})});}catch{}
   });
   bridge.subscribeToSystemThemeVariant(()=>send({kind:'theme',value:bridge.getSystemThemeVariant()}));
   ws.onmessage=async event=>{

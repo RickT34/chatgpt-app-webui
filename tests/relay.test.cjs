@@ -67,3 +67,26 @@ test('late results and port responses retain the old session after a replacement
  assert.equal(sent.find(m=>m.kind==='result').session,'old');assert.equal(sent.at(-1).session,'old');
  channels[1].port1.onmessage({data:'new port data'});assert.equal(sent.at(-1).session,'new');
 });
+
+test('agent capture geometry stays native while the web panel retains its visible layout',async()=>{
+ for(const minimal of [true,false]){
+  const listeners=new Map(),sent=[];
+  const window={document:{documentElement:{dataset:{chatgptWebHost:minimal?'minimal':undefined}}},
+   electronBridge:{subscribeToSystemThemeVariant(){}},chatgptWebCodec:codec,
+   chatgptWebTransport:{send:data=>sent.push(codec.unpack(data)),subscribe(){},getSnapshot:()=>({})},
+   addEventListener:(type,fn)=>listeners.set(type,fn),postMessage(){},location:{origin:'app://-'}};
+  class Channel{constructor(){this.port1={};this.port2={};}}
+  await new Function('window','MessageChannel','createHost','return ('+fs.readFileSync('bridge/relay.js','utf8')+')(createHost)')(window,Channel,()=>({ready:Promise.resolve()}));
+  const route={conversationId:'thread',browserTabId:'tab'};
+  const original={type:'browser-sidebar-browser-use-capture-surface',...route,surfaceSize:{width:1800,height:1200}};
+  listeners.get('message')({source:null,data:original});
+  assert.deepEqual(sent.at(-1).value,{...original,surfaceSize:minimal?null:original.surfaceSize});
+  assert.deepEqual(original.surfaceSize,{width:1800,height:1200},'do not mutate the native event');
+  const activity={type:'browser-sidebar-browser-use-state',...route,isActive:true};
+  listeners.get('message')({source:null,data:activity});
+  assert.deepEqual(sent.at(-1).value,activity,'agent activity must still reach the original UI');
+  const released={...original,surfaceSize:null};
+  listeners.get('message')({source:null,data:released});
+  assert.deepEqual(sent.at(-1).value,released);
+ }
+});
