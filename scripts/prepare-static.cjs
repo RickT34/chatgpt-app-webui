@@ -6,7 +6,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const zlib=require('node:zlib');
 const {promisify}=require('node:util');
-const {entryPath,entryScript}=require('../bridge/page.cjs');
+const {entryPath,entryScript,bridgeBundle}=require('../bridge/page.cjs');
 const gzip=promisify(zlib.gzip),brotli=promisify(zlib.brotliCompress);
 const hash=data=>crypto.createHash('sha256').update(data).digest('hex');
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.pdf':'application/pdf','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2','.json':'application/json','.wasm':'application/wasm'};
@@ -88,6 +88,7 @@ async function main(){
   const bridge=new Map(['identity.js','favicon.svg','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.css','folder-picker.js','attachments.js','resources.js','browser-native.js','browser-view.js','client.js','rpc-client.mjs'].map(name=>['bridge/'+name,()=>fs.readFileSync(path.join(root,'bridge',name))]));
   bridge.set('bridge/capnweb.js',()=>fs.readFileSync(path.join(root,'node_modules/capnweb/dist/index.js')));
   bridge.set('bridge/entry.js',()=>Buffer.from(entryScript(html)));
+  bridge.set('bridge/browser.js',()=>Buffer.from(bridgeBundle(name=>fs.readFileSync(path.join(root,'bridge',name),'utf8'))));
   const files=[...archive.files.keys(),...bridge.keys()].filter(name=>name!=='index.html');
   const manifest=await build({output,origin,buildKey,files,html,read:name=>bridge.has(name)?bridge.get(name)():archive.read(name)});
   console.log(`Prepared ${Object.keys(manifest.entries).length} web resources; version ${manifest.version.slice(0,12)}`);

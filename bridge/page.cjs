@@ -1,4 +1,9 @@
 'use strict';
+const bridgeScripts=['identity.js','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.js','attachments.js','resources.js','browser-native.js','browser-view.js','client.js'];
+function bridgeBundle(read){
+ // Preserve script order and separate lexical scopes without another bundler.
+ return bridgeScripts.map(file=>`// bridge/${file}\n(()=>{\n${read(file)}\n})();`).join('\n;\n');
+}
 // Keep preparation and HTTP rendering on the same entry/preload contract.
 function entryPath(html){
  const match=html.match(/<script type="module" crossorigin src="([^"]+)"><\/script>/);
@@ -12,7 +17,6 @@ function entryScript(html){
 function renderPage(html,{startup,version,websocketOrigin,preloads=[],title='ChatGPT Web'}){
  const prefix=`/static/${version}`;
  const hash=require('node:crypto').createHash('sha256').update(startup).digest('base64');
- const scripts=['identity.js','codec.js','statsig-storage.js','statsig-bootstrap.js','folder-picker.js','attachments.js','resources.js','browser-native.js','browser-view.js','client.js'];
  const pageTitle=(String(title??'').replace(/\s+/g,' ').trim()||'ChatGPT Web')
   .replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
  html=html.replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi,'')
@@ -21,7 +25,7 @@ function renderPage(html,{startup,version,websocketOrigin,preloads=[],title='Cha
  // imports inside versioned modules automatically inherit the same version.
  html=html.replace(/<script type="module" crossorigin src="[^"]+"><\/script>/,
   `<script>${startup}</script><link rel="stylesheet" href="/bridge/folder-picker.css">`+
-  scripts.map(file=>`<script defer src="/bridge/${file}"></script>`).join('')+
+  '<script defer src="/bridge/browser.js"></script>'+
   '<script type="module" src="/bridge/entry.js"></script>');
  html=html.replace(/\b(src|href)="(?:\.\/|\/)(assets\/[^"<>]+|bridge\/[^"<>]+)"/g,`$1="${prefix}/$2"`);
  const links=[...new Set(preloads)].map(file=>`<link rel="modulepreload" crossorigin href="${prefix}/${file}">`).join('');
@@ -30,4 +34,4 @@ function renderPage(html,{startup,version,websocketOrigin,preloads=[],title='Cha
   .replace(/<meta name="referrer" content="[^"]+"/,'<meta name="referrer" content="no-referrer"')
   .replace('connect-src ',`connect-src ${websocketOrigin} `);
 }
-module.exports={entryPath,entryScript,renderPage};
+module.exports={entryPath,entryScript,renderPage,bridgeScripts,bridgeBundle};

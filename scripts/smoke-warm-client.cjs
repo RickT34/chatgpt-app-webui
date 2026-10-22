@@ -2,14 +2,22 @@
 // Repeated browser-protocol connections, without UI automation or model calls.
 const fs=require('node:fs'),{once}=require('node:events');
 const {WebSocket}=require('ws'),codec=require('../bridge/codec.js');
+const {bootstrap,acquire,socketBootstrap}=require('../bridge/startup.js');
 async function main(){
  const login=fs.readFileSync('.logs/access-url','utf8').trim(),base=new URL(login).origin;
  const auth=await fetch(login,{redirect:'manual'}),cookie=(auth.headers.get('set-cookie')||'').split(';')[0];
  const {newMessagePortRpcSession}=await import('capnweb');
  const measurements=[];
  for(let i=0;i<4;i++){
-  const ws=new WebSocket(base.replace(/^http/,'ws')+'/bridge/socket',{headers:{cookie,origin:base}});
-  await once(ws,'open');const started=performance.now();
+  const fetcher=(url,options)=>fetch(base+url,{...options,headers:{cookie}});
+  const state=await bootstrap(fetcher,{connection:true});let snapshot;
+  const ws=await acquire({state,fetcher,confirm:()=>{throw Error('Smoke test refuses to take over an existing browser');},makeSocket:path=>{
+   const socket=new WebSocket(base.replace(/^http/,'ws')+path+'?bootstrap=1',{headers:{cookie,origin:base}});
+   snapshot=socketBootstrap(socket);snapshot.catch(()=>{});return socket;
+  }});
+  const initial=codec.decode(await snapshot);
+  if(!initial.shared||!('getInitialSidebarBootstrap' in initial))throw Error('Missing fresh WebSocket bootstrap');
+  const started=performance.now();
   const {port1,port2}=new MessageChannel();
   const root=newMessagePortRpcSession(port1,{services:{downloads:{stateChanged(){}},appUpdates:{stateChanged(){}},clientCoordination:{}}});
   ws.on('message',data=>{const m=codec.unpack(data.toString());if(m.kind==='port'&&m.id===1)port2.postMessage(m.value);});

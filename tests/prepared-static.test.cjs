@@ -7,7 +7,7 @@ const path=require('node:path');
 const http=require('node:http');
 const zlib=require('node:zlib');
 const {build}=require('../scripts/prepare-static.cjs');
-const {renderPage,entryScript}=require('../bridge/page.cjs');
+const {renderPage,entryScript,bridgeScripts,bridgeBundle}=require('../bridge/page.cjs');
 const createSender=require('../bridge/static.cjs');
 const html='<html><head><meta http-equiv="Content-Security-Policy" content="script-src self; connect-src self;"><script type="module" crossorigin src="./assets/index.js"></script><link rel="modulepreload" crossorigin href="./assets/shared.js"><link rel="stylesheet" href="./assets/app.css"></head><body></body></html>';
 const content={
@@ -80,10 +80,9 @@ test('HTML versions module graphs while preserving router base, CSP, and deferre
  const prefix='/static/'+manifest.version+'/';
  assert(page.includes('<base href="/">'));assert(page.includes(`href="${prefix}assets/app.css"`));
  assert(page.includes(`href="${prefix}assets/initial.js"`));assert(page.includes(`href="${prefix}bridge/rpc-client.mjs"`));
- assert(page.includes(`defer src="${prefix}bridge/client.js"`));assert(page.includes(`type="module" src="${prefix}bridge/entry.js"`));
- assert(page.indexOf('bridge/client.js')<page.indexOf('bridge/entry.js'));
- assert(page.indexOf('bridge/statsig-storage.js')<page.indexOf('bridge/client.js'));
- assert(page.indexOf('bridge/statsig-bootstrap.js')<page.indexOf('bridge/client.js'));
+ assert(page.includes(`defer src="${prefix}bridge/browser.js"`));assert(page.includes(`type="module" src="${prefix}bridge/entry.js"`));
+ assert(page.indexOf('bridge/browser.js')<page.indexOf('bridge/entry.js'));
+ assert.equal((page.match(/<script defer /g)||[]).length,1,'bridge startup should use one download');
  assert(page.indexOf('Content-Security-Policy')<page.indexOf('assets/initial.js'));
  assert(page.includes(require('node:crypto').createHash('sha256').update(startup).digest('base64')));
  assert(page.includes('connect-src wss://one.example '));assert(!page.includes('unsafe-inline'));
@@ -99,6 +98,19 @@ test('page identity escapes custom text, normalizes whitespace, and versions the
  assert(page.includes('<title>我的 工作台 &amp; &lt;script&gt;&quot;$&amp;&lt;/script&gt;</title>'));
  assert(!page.includes('Old session title'));
  assert(page.includes('href="/static/test-version/bridge/favicon.svg"'));
- assert(page.indexOf('bridge/identity.js')<page.indexOf('bridge/client.js'));
+ assert(page.indexOf('bridge/browser.js')<page.indexOf('bridge/entry.js'));
  assert(renderPage(html,{...options,title:' \n '}).includes('<title>ChatGPT Web</title>'));
+});
+
+test('combined bridge preserves execution order, script URL and separate lexical scopes',()=>{
+ const vm=require('node:vm'),events=[];
+ const context={events,document:{currentScript:{src:'https://example.test/static/version/bridge/browser.js'}}};
+ vm.runInNewContext(bridgeBundle(file=>`const name=${JSON.stringify(file)};events.push([name,document.currentScript.src]);`),context);
+ assert.deepEqual(events.map(event=>event[0]),bridgeScripts);
+ assert(events.every(event=>event[1]===context.document.currentScript.src));
+ assert(bridgeScripts.indexOf('statsig-bootstrap.js')<bridgeScripts.indexOf('client.js'));
+ assert(bridgeScripts.indexOf('codec.js')<bridgeScripts.indexOf('client.js'));
+ // Parse the actual combination too, so conflicting declarations or a missing
+ // boundary between scripts cannot hide behind the small execution fixture.
+ new vm.Script(bridgeBundle(file=>fs.readFileSync(path.join('bridge',file),'utf8')));
 });

@@ -25,3 +25,14 @@ module.exports=function createBootstrapReader(send,{timeout=5000}={}){
   reset(){finish(Error('App renderer unavailable'));},
  };
 };
+
+// Send a fresh snapshot after admission, including after a delayed takeover.
+// The reader already returns codec-encoded data; do not encode it a second time.
+module.exports.send=async function sendBootstrap(ws,reader,isCurrent){
+ try{
+  const value=await reader.read();
+  if(isCurrent()&&ws.readyState===1)ws.send(JSON.stringify({kind:'bootstrap',value}));
+ }catch{
+  if(isCurrent()&&ws.readyState===1)ws.close(1013,'App bootstrap unavailable');
+ }
+};

@@ -110,3 +110,37 @@ test('connection races ask again for the new owner instead of silently stealing 
  }});
  assert.equal(confirmations,2);assert.deepEqual(urls,['/bridge/socket?takeover=old-id','/bridge/socket?takeover=new-id']);
 });
+
+test('readiness returns connection ownership without an extra status round trip',async()=>{
+ const {acquire}=require('../bridge/startup.js');const requests=[];
+ const state=await bootstrap(async url=>{requests.push(url);return {ok:true,json:async()=>({browser:false,clientId:null})};},{connection:true});
+ const ws=await acquire({state,fetcher:()=>{throw Error('Unexpected status fetch');},confirm:()=>{throw Error('Unexpected takeover');},makeSocket:()=>{
+  const socket=new Socket();queueMicrotask(()=>socket.dispatchEvent(new Event('open')));return socket;
+ }});
+ assert.deepEqual(requests,['/bridge/bootstrap?connect=1']);ws.close();
+});
+test('stale readiness retries with current ownership and requires takeover approval',async()=>{
+ const {acquire}=require('../bridge/startup.js');let confirmed=false;const paths=[];
+ const ws=await acquire({state:{browser:false},fetcher:async()=>({ok:true,json:async()=>({browser:true,clientId:'new-owner'})}),confirm:async()=>{confirmed=true;},makeSocket:path=>{
+  paths.push(path);if(paths.length===2)assert(confirmed);
+  const socket=new Socket();const event=paths.length===1?'error':'open';queueMicrotask(()=>socket.dispatchEvent(new Event(event)));return socket;
+ }});
+ assert(confirmed);assert.deepEqual(paths,['/bridge/socket','/bridge/socket?takeover=new-owner']);ws.close();
+});
+test('socket startup accepts the upgrade snapshot, ignores other messages and removes listeners',async()=>{
+ const {socketBootstrap}=require('../bridge/startup.js');const codec=require('../bridge/codec.js');
+ const socket=new Socket(),result=socketBootstrap(socket);
+ socket.dispatchEvent(new MessageEvent('message',{data:codec.pack({kind:'heartbeat'})}));
+ const state={shared:{value:new Uint8Array([1,2])},theme:'dark'};
+ socket.dispatchEvent(new MessageEvent('message',{data:codec.pack({kind:'bootstrap',value:state})}));
+ assert.deepEqual(codec.decode(await result),state);
+ assert.equal(require('node:events').getEventListeners(socket,'message').length,0);
+ socket.close();
+});
+test('socket startup rejects on timeout or lost connection and cleans listeners',async()=>{
+ const {socketBootstrap}=require('../bridge/startup.js');
+ const stalled=new Socket();await assert.rejects(socketBootstrap(stalled,10),/超时/);assert(stalled.closed);
+ assert.equal(require('node:events').getEventListeners(stalled,'message').length,0);
+ const closed=new Socket(),result=socketBootstrap(closed);closed.close();await assert.rejects(result,/断开/);
+ assert.equal(require('node:events').getEventListeners(closed,'message').length,0);
+});

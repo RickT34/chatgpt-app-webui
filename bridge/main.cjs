@@ -84,6 +84,9 @@ const server = http.createServer(async(req,res)=>{
   }
   if(u.pathname==='/bridge/bootstrap'){
     if(!snapshot)return json(res,503,{error:'App renderer is not ready'});
+    // Read the full snapshot only once, after WebSocket admission. This small
+    // readiness response also replaces the separate connection-status request.
+    if(u.searchParams.get('connect')==='1')return json(res,200,{browser:!!connections.client,clientId:connections.client?.webClientId??null});
     try{return json(res,200,await bootstrapReader.read());}
     catch{return json(res,503,{error:'App renderer is not ready'});}
   }
@@ -108,6 +111,7 @@ server.on('upgrade',(req,socket,head)=>{
     browserConnections++;
     if(!connections.admit(ws,expected)){ws.close(4009,'Connection changed');return;}
     heartbeat(ws,{onTick:()=>ws.send(codec.pack({kind:'heartbeat'}))});
+    if(u.searchParams.get('bootstrap')==='1')void require('./web-bootstrap.cjs').send(ws,bootstrapReader,()=>connections.client===ws);
     ws.on('message',async data=>{
       if(connections.client!==ws)return;
       let message;try{message=codec.unpack(data.toString());}catch{ws.close(1007,'Invalid message');return;}

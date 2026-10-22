@@ -283,3 +283,18 @@ node --experimental-vm-modules scripts/smoke-pdf.cjs
 - 修正后，同一页面、同一组事件，客户端父容器保持 opacity=1、可见区域 538×572，收到的图像为 1280×720；截图中 Deskling 页面可见，原生截图尺寸也保留。发送释放状态后，原生尺寸恢复为 538×572。
 - Node 113 项通过；新增 relay 测试覆盖 minimal 的客户端布局状态、full 不改写、保留活动与释放事件、原始事件不被修改。原有 browser-host 截图尺寸优先级测试继续通过；新测试对 HEAD 旧 relay 得到预期失败。按 review-testing 复核边界和副作用。
 - 证据在 `.logs/browser-capture-investigation/`：`before.png`、`after.png`、回归日志、独立测试脚本。未进行 Docker 测试；正式宿主未重启或接管。
+
+## 2026-10-22 · 高延迟启动握手与脚本请求
+
+- `npm test` 122 项通过。新增覆盖：复用首次连接归属、争用后重新确认、WebSocket 快照传输和失效清理、接管后的迟到快照隔离、旧状态不覆盖新快照、排队下载通知保留，以及合并脚本的执行顺序和作用域。
+- `node scripts/smoke-latency.cjs` 使用真实回环 HTTP/WebSocket，每个 HTTP 请求和 WebSocket upgrade 人为增加一个指定 RTT。只测读取可用启动快照的时间，不包含 TLS/TCP 建连、原版 UI 运行或首屏渲染。
+
+| 模拟 RTT | 原握手 | 优化后握手 |
+| --- | ---: | ---: |
+| 100 ms | 419 ms | 206 ms |
+| 300 ms | 1213 ms | 605 ms |
+
+- 每次握手的 HTTP 请求从 3 次降为 1 次，当前宿主快照读取从 2 次降为 1 次；WebSocket upgrade 均为 1 次。以上为本地单次对照值，不代表完整页面的提速比例。
+- 桥接脚本请求从 10 个降为 1 个；同样 Brotli quality=4 下，本次工作区代码从合计 20,018 字节降为 16,614 字节。主界面大模块的字节数不计入这组数字。
+- 独立准备副本和临时 profile 下，真实 ARM64 App 26.1007.21434 连续 4 次通过新协议收到当前侧栏/共享快照，并取得 138 项服务；`nativeHostConnections=1`。剪贴板、原生及旧版保存下载、资源认证/范围请求检查通过。记录保存在 `.logs/remote-startup/`。
+- 正式实例保持运行，远程浏览器首屏交由使用者验证；未做 Docker 测试。

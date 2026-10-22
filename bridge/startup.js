@@ -4,13 +4,13 @@
   let timer;
   return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>{const error=Error(message);error.name='TimeoutError';reject(error);onTimeout();},ms);})]).finally(()=>clearTimeout(timer));
  }
- async function bootstrap(fetcher,{timeout=180000,requestTimeout=10000,retry=1000}={}){
+ async function bootstrap(fetcher,{timeout=180000,requestTimeout=10000,retry=1000,connection=false}={}){
   const end=Date.now()+timeout;let lastError=null;
   while(Date.now()<end){
    const controller=new AbortController();
    let response;
    try{
-    response=await wait(fetcher('/bridge/bootstrap',{signal:controller.signal,cache:'no-store',credentials:'same-origin',priority:'high'}),Math.min(requestTimeout,end-Date.now()),'获取 App 状态超时，请检查网络或反向代理。',()=>controller.abort());
+    response=await wait(fetcher('/bridge/bootstrap'+(connection?'?connect=1':''),{signal:controller.signal,cache:'no-store',credentials:'same-origin',priority:'high'}),Math.min(requestTimeout,end-Date.now()),'获取 App 状态超时，请检查网络或反向代理。',()=>controller.abort());
     if(response.ok)return await wait(response.json(),Math.max(1,Math.min(requestTimeout,end-Date.now())),'读取 App 状态超时，请检查网络或反向代理。',()=>controller.abort());
     lastError=null;
    }catch(error){
@@ -35,11 +35,21 @@
    ws.addEventListener('open',opened);ws.addEventListener('error',failed);ws.addEventListener('close',failed);
   });
  }
- async function acquire({fetcher,makeSocket,confirm,connecting=()=>{}}){
+ function socketBootstrap(ws,timeout=180000){
+  // Install at socket creation: the host can send the snapshot with the upgrade.
+  return new Promise((resolve,reject)=>{
+   const finish=(error,value)=>{clearTimeout(timer);ws.removeEventListener('message',message);ws.removeEventListener('close',failed);ws.removeEventListener('error',failed);if(error)reject(error);else resolve(value);};
+   const message=event=>{try{const value=JSON.parse(event.data);if(value.kind==='bootstrap')finish(null,value.value);}catch{finish(Error('宿主启动数据无效，请刷新页面。'));}};
+   const failed=()=>finish(Error('同步会话状态失败，连接已断开。'));
+   const timer=setTimeout(()=>{finish(Error('同步会话状态超时，请重试。'));ws.close();},timeout);
+   ws.addEventListener('message',message);ws.addEventListener('close',failed);ws.addEventListener('error',failed);
+  });
+ }
+ async function acquire({fetcher,makeSocket,confirm,connecting=()=>{},state:initialState}){
   let lastError;
   for(let attempt=0;attempt<3;attempt++){
    const controller=new AbortController();
-   const state=await wait((async()=>{
+   const state=attempt===0&&initialState?initialState:await wait((async()=>{
     const response=await fetcher('/bridge/status',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
     if(response.status===401||response.status===403)throw Error('登录已过期，请重新登录后重试。');
     if(!response.ok)throw Error(`读取连接状态失败（HTTP ${response.status}）。`);
@@ -56,7 +66,7 @@
  function status(){
   // This inline script precedes the large module preloads and deferred bridge
   // scripts. Start the small authenticated request before those occupy sockets.
-  const bootstrapReady=bootstrap(fetch);bootstrapReady.catch(()=>{});
+  const bootstrapReady=bootstrap(fetch,{connection:true});bootstrapReady.catch(()=>{});
   const started=performance.now(),timings=[];
   const mark=phase=>{const ms=Math.round(performance.now()-started);timings.push({phase,ms});performance.mark?.(`chatgpt-web:${phase}`);};
   let panel,label,button,timer,failed=false,finished=false,hostReady=false,entryReady=false,contentReady=false,stage='下载页面资源',confirmation=null,dismissed=false,warning=null;
@@ -93,9 +103,9 @@
   },true);
   window.addEventListener('unhandledrejection',()=>{if(!finished&&!failed)fail(Error('页面初始化异常，请重试；详细错误见浏览器控制台。'),{advisory:true});});
   setStage(stage);
-  return {wait,bootstrap,bootstrapReady,connect,acquire,confirmTakeover,stage:setStage,fail,get timings(){return timings.map(value=>({...value}));},get failed(){return failed;},hostReady(){hostReady=true;mark('host_ready');setStage('初始化界面');check();},entryReady(){entryReady=true;mark('entry_ready');check();},phase(value){if(value==='first_content_visible'&&!contentReady){contentReady=true;mark(value);check();}}};
+  return {wait,bootstrap,bootstrapReady,connect,acquire,socketBootstrap,confirmTakeover,stage:setStage,fail,get timings(){return timings.map(value=>({...value}));},get failed(){return failed;},hostReady(){hostReady=true;mark('host_ready');setStage('初始化界面');check();},entryReady(){entryReady=true;mark('entry_ready');check();},phase(value){if(value==='first_content_visible'&&!contentReady){contentReady=true;mark(value);check();}}};
  }
- const api={wait,bootstrap,connect,acquire};
+ const api={wait,bootstrap,connect,acquire,socketBootstrap};
  if(typeof module==='object'&&module.exports)module.exports=api;
  else root.chatgptWebStartup=status();
 })(typeof window==='undefined'?globalThis:window);
