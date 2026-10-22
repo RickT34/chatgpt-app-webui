@@ -7,4 +7,4 @@ for directory in /data "$HOME" "$CODEX_HOME" /data/.deps /data/.runtime /data/.p
         exit 1
     fi
 done
-exec /app/scripts/start.sh --yes "$@"
+exec /app/scripts/start --yes "$@"

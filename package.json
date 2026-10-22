@@ -5,7 +5,9 @@
   "description": "Reuse the installed ChatGPT desktop interface in your browser, backed by the original local App.",
   "scripts": {
     "prepare:app": "python3 scripts/prepare.py",
-    "start": "sh scripts/start.sh",
+    "start": "sh scripts/start",
+    "update:desktop": "sh scripts/start update",
+    "rollback:desktop": "sh scripts/start rollback",
     "test": "node --test tests/*.test.cjs",
     "test:integration": "node scripts/smoke.cjs"
   },

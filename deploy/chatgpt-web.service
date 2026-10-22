@@ -10,7 +10,7 @@ WorkingDirectory=%h/chatgpt-web
 Environment=CHATGPT_WEB_HOST_RENDERER=minimal
 Environment=CHATGPT_WEB_LOG_LEVEL=normal
 EnvironmentFile=-%h/.config/chatgpt-web.env
-ExecStart=/bin/sh scripts/start.sh --ozone-platform=headless --disable-gpu
+ExecStart=/bin/sh scripts/start --ozone-platform=headless --disable-gpu
 Restart=on-failure
 RestartSec=5
 KillMode=control-group

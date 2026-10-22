@@ -117,7 +117,7 @@ class BootstrapTests(unittest.TestCase):
                 bootstrap.check_libraries(Path('/example/app'))
 
     def test_python_override_fails_without_download(self):
-        result = subprocess.run(['sh', str(ROOT / 'scripts/start.sh'), '--yes', '--check'],
+        result = subprocess.run(['sh', str(ROOT / 'scripts/start'), '--yes', '--check'],
                                 env={**os.environ, 'CHATGPT_WEB_PYTHON': '/no/such/python'}, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('CHATGPT_WEB_PYTHON', result.stderr)

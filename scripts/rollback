@@ -1,0 +1,3 @@
+#!/bin/sh
+# Restore the Desktop saved by the last successful update.
+exec "$(dirname "$0")/start" rollback "$@"

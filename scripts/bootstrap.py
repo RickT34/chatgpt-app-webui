@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check, confirm, install locally, prepare and launch. No sudo or system writes."""
+from contextlib import ExitStack
 import datetime
 import fcntl
 import hashlib
@@ -15,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_VERSION = '26.1007.21434'
@@ -24,6 +26,7 @@ APP_HASHES = {
 }
 DEB_BASE = 'https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/'
 NODE_BASE = 'https://nodejs.org/dist/latest-v22.x/'
+APP_REPOSITORY = 'https://persistent.oaistatic.com/codex-app-prod/linux/deb/'
 
 
 def sha256(file):
@@ -178,6 +181,9 @@ def ensure_app(yes, check):
         if not app_exists(selected):
             raise RuntimeError(f'CHATGPT_APP_DIR is invalid: {selected}; unset it to enable automatic discovery/download')
         return selected
+    state = desktop_state()
+    if state:
+        return validate_release(state['current'])
     _, deb_arch = architecture()
     local_root = ROOT / f'.deps/chatgpt-{APP_VERSION}-{deb_arch}'
     candidates = [local_root / 'usr/lib/chatgpt', Path('/usr/lib/chatgpt'), Path('/opt/chatgpt')]
@@ -228,7 +234,188 @@ def needs_prepare(source):
         return True
 
 
-def main(arguments):
+def atomic_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_text(json.dumps(value, indent=2) + '\n')
+    temporary.replace(path)
+
+
+def desktop_state():
+    path = ROOT / '.deps/desktop-state.json'
+    if not path.exists():
+        return None
+    state = json.loads(path.read_text())
+    if state.get('format') != 1 or not isinstance(state.get('current'), dict):
+        raise RuntimeError(f'Invalid Desktop version state: {path}')
+    return state
+
+
+def validate_release(release):
+    if not isinstance(release, dict) or any(not isinstance(release.get(key), str)
+                                          for key in ('source', 'version', 'source_sha256')):
+        raise RuntimeError('Invalid saved Desktop release record')
+    source = Path(release['source'])
+    if not app_exists(source) or sha256(source / 'resources/app.asar') != release['source_sha256']:
+        raise RuntimeError(f'Saved Desktop source is missing or changed: {source}')
+    return source
+
+
+def describe_release(source):
+    archive = source / 'resources/app.asar'
+    with archive.open('rb') as stream:
+        prefix = struct.unpack('<4I', stream.read(16))
+        package = json.loads(stream.read(prefix[3]))['files']['package.json']
+        stream.seek(8 + prefix[1] + int(package['offset']))
+        version = json.loads(stream.read(package['size']))['version']
+    return {'source': str(source), 'version': version, 'source_sha256': sha256(archive)}
+
+
+def latest_desktop(index, arch):
+    """Select numeric stable releases from the official Debian Packages index."""
+    releases = []
+    for paragraph in re.split(r'\n\s*\n', index.strip()):
+        fields = dict(line.split(': ', 1) for line in paragraph.splitlines()
+                      if not line.startswith((' ', '\t')) and ': ' in line)
+        if fields.get('Package') != 'chatgpt' or fields.get('Architecture') != arch:
+            continue
+        version = fields.get('Version', '')
+        filename = fields.get('Filename', '')
+        digest = fields.get('SHA256', '')
+        if (not re.fullmatch(r'\d+(?:\.\d+)+(?:-\d+)?', version)
+                or filename != f'pool/main/c/chatgpt/chatgpt_{version}_{arch}.deb'
+                or not re.fullmatch(r'[a-f0-9]{64}', digest)):
+            raise RuntimeError('Invalid Desktop release metadata in the official package index')
+        releases.append({'version': version, 'filename': filename, 'sha256': digest})
+    if not releases:
+        raise RuntimeError(f'No stable ChatGPT Desktop package found for {arch}')
+    return max(releases, key=lambda release: tuple(map(int, re.findall(r'\d+', release['version']))))
+
+
+def remove_path(path):
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def recover_desktop_switch(check=False):
+    """Undo an interrupted publication before normal discovery or another update."""
+    journal = ROOT / '.deps/desktop-transaction.json'
+    if not journal.exists():
+        return
+    if check:
+        raise RuntimeError('Interrupted Desktop switch; run --setup-only to recover it')
+    transaction = json.loads(journal.read_text())
+    for entry in reversed(transaction['entries']):
+        target, backup = Path(entry['target']), Path(entry['backup'])
+        if backup.exists():
+            remove_path(target)
+            backup.replace(target)
+        elif not entry['existed'] and not Path(entry['source']).exists():
+            remove_path(target)
+    journal.unlink()
+    shutil.rmtree(transaction['stage'], ignore_errors=True)
+    print('Recovered the previous Desktop after an interrupted switch.', flush=True)
+
+
+def publish_desktop(stage, state):
+    """Publish runtime, manifest and selection together, with restart recovery."""
+    atomic_json(stage / 'desktop-state.json', state)
+    pairs = [(stage / '.runtime', (ROOT / '.runtime').resolve()),
+             (stage / 'prepare-manifest.json', (ROOT / 'prepare-manifest.json').resolve()),
+             (stage / 'desktop-state.json', (ROOT / '.deps/desktop-state.json').resolve())]
+    entries = [{'source': str(source), 'target': str(target),
+                'backup': str(stage / f'backup-{number}'), 'existed': target.exists()}
+               for number, (source, target) in enumerate(pairs)]
+    journal = ROOT / '.deps/desktop-transaction.json'
+    atomic_json(journal, {'stage': str(stage), 'entries': entries})
+    try:
+        for entry in entries:
+            target = Path(entry['target'])
+            if entry['existed']:
+                target.replace(entry['backup'])
+            Path(entry['source']).replace(target)
+        journal.unlink()  # Commit only after every path is published.
+    except BaseException:
+        recover_desktop_switch()
+        raise
+
+
+def switch_desktop(action, current, yes, lock_fd):
+    state = desktop_state()
+    if action == 'rollback':
+        if not state or not state.get('previous'):
+            raise RuntimeError('No previous Desktop version saved; rollback is available after a successful update')
+        release = state['previous']
+        source = validate_release(release)
+    else:
+        _, arch = architecture()
+        index = download(APP_REPOSITORY + f'dists/stable/main/binary-{arch}/Packages',
+                         ROOT / f'.deps/downloads/desktop-{arch}-Packages').read_text()
+        latest = latest_desktop(index, arch)
+        current_release = describe_release(current)
+        if current_release['version'] == latest['version']:
+            print(f'Desktop {latest["version"]} is already the latest stable version; previous version retained.')
+            return
+        if (re.fullmatch(r'\d+(?:\.\d+)+(?:-\d+)?', current_release['version'])
+                and tuple(map(int, re.findall(r'\d+', current_release['version'])))
+                > tuple(map(int, re.findall(r'\d+', latest['version'])))):
+            print(f'Desktop {current_release["version"]} is newer than stable {latest["version"]}; no update performed.')
+            return
+        ask(f'Update Desktop {current_release["version"]} -> {latest["version"]} ({arch})? '
+            'Download from persistent.oaistatic.com, verify SHA-256 and save the previous version locally.', yes)
+        if shutil.disk_usage(ROOT).free < 6 * 1024**3:
+            raise RuntimeError('At least 6 GiB free space is required for the download, staged runtime and previous source')
+        package = download(APP_REPOSITORY + latest['filename'],
+                           ROOT / '.deps/downloads' / Path(latest['filename']).name, latest['sha256'])
+        # Never overwrite an extracted source that a runtime or rollback may use.
+        sources = ROOT / '.deps/desktop-sources'
+        sources.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=sources) as temporary:
+            extracted = Path(temporary) / 'package'
+            extracted.mkdir()
+            extract_deb(package, extracted)
+            if not app_exists(extracted / 'usr/lib/chatgpt'):
+                raise RuntimeError('Unexpected ChatGPT package layout; current version retained')
+            installed = sources / f'{latest["version"]}-{arch}-{uuid.uuid4().hex}'
+            extracted.rename(installed)
+        source = installed / 'usr/lib/chatgpt'
+        release = describe_release(source)
+        if release['version'] != latest['version']:
+            raise RuntimeError('Desktop package version does not match the stable index')
+        release['package_sha256'] = latest['sha256']
+    check_libraries(source)
+    # Stage alongside the real runtime (also works with Docker's /data symlink).
+    runtime_parent = (ROOT / '.runtime').resolve().parent
+    stage = Path(tempfile.mkdtemp(prefix='.desktop-stage-', dir=runtime_parent))
+    try:
+        environment = {**os.environ, 'CHATGPT_APP_DIR': str(source),
+                       'CHATGPT_WEB_PREPARE_DIR': str(stage), 'CHATGPT_WEB_LOCK_FD': str(lock_fd)}
+        subprocess.run([sys.executable, str(ROOT / 'scripts/prepare.py')],
+                       env=environment, check=True, pass_fds=(lock_fd,))
+        if action == 'update':
+            if state:
+                previous = state['current']
+                validate_release(previous)
+            else:
+                # Snapshot even a system installation so later system updates
+                # cannot remove or silently change our rollback source.
+                snapshot = ROOT / '.deps/desktop-sources' / f'previous-{uuid.uuid4().hex}'
+                shutil.copytree(current, snapshot, symlinks=False)
+                previous = describe_release(snapshot)
+                if previous['source_sha256'] != current_release['source_sha256']:
+                    raise RuntimeError('Original Desktop changed during the update; current selection retained')
+        else:
+            previous = None  # One-level rollback, not a toggle back to the newer version.
+        publish_desktop(stage, {'format': 1, 'current': release, 'previous': previous})
+    finally:
+        if not (ROOT / '.deps/desktop-transaction.json').exists():
+            shutil.rmtree(stage, ignore_errors=True)
+    print(f'Desktop {action} complete: {release["version"]}. Start with your usual command.', flush=True)
+
+
+def _main(arguments, stack):
     if os.environ.get('CHATGPT_WEB_LOG_LEVEL', 'normal') not in ('normal', 'debug'):
         raise RuntimeError('CHATGPT_WEB_LOG_LEVEL must be normal or debug')
     if os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal') not in ('minimal', 'full'):
@@ -239,21 +426,31 @@ def main(arguments):
     yes = '--yes' in arguments or os.environ.get('CHATGPT_WEB_SETUP_YES') == '1'
     check = '--check' in arguments
     setup_only = '--setup-only' in arguments
-    electron_args = [a for a in arguments if a not in ('--yes', '--check', '--setup-only')]
+    actions = [a.removeprefix('--') for a in arguments if a in ('update', 'rollback', '--update', '--rollback')]
+    action = actions[0] if actions else None
+    electron_args = [a for a in arguments if a not in ('--yes', '--check', '--setup-only', 'update', 'rollback', '--update', '--rollback')]
+    if action and (len(actions) != 1 or check or electron_args):
+        raise RuntimeError('Usage: scripts/start update|rollback [--yes]; do not combine with --check or Electron options')
+    if action and os.environ.get('CHATGPT_APP_DIR'):
+        raise RuntimeError('Unset CHATGPT_APP_DIR before update/rollback; it overrides the saved Desktop selection')
     os.chdir(ROOT)
     # Checks never download, repair, or start the App.
     lock = None
     if not check:
         (ROOT / '.logs').mkdir(exist_ok=True, mode=0o700)
-        lock = (ROOT / '.logs/instance.lock').open('a')
+        lock = stack.enter_context((ROOT / '.logs/instance.lock').open('a'))
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError('Web UI is already running; stop it before setup/start')
+            raise RuntimeError('Web UI is already running; stop it before setup/start/update/rollback')
+    recover_desktop_switch(check)
+    if action == 'rollback' and not (desktop_state() or {}).get('previous'):
+        raise RuntimeError('No previous Desktop version saved; rollback is available after a successful update')
     node_bin = ensure_node(yes, check)
     os.environ['PATH'] = str(node_bin) + os.pathsep + os.environ['PATH']
-    source = ensure_app(yes, check)
-    check_libraries(source)
+    source = validate_release(desktop_state()['previous']) if action == 'rollback' else ensure_app(yes, check or bool(action))
+    if not action:
+        check_libraries(source)
     print(f'Python: {sys.executable}\nNode: {shutil.which("node")}\nApp: {source}', flush=True)
     lock_hash = sha256(ROOT / 'package-lock.json')
     marker = ROOT / 'node_modules/.chatgpt-webui-lock'
@@ -262,10 +459,13 @@ def main(arguments):
         ask('Install project dependencies from package-lock.json using npm ci --ignore-scripts (cache in .deps/cache/npm)?', yes, check)
         subprocess.run(['npm', 'ci', '--ignore-scripts', '--cache', str(ROOT / '.deps/cache/npm')], check=True)
         marker.write_text(lock_hash + '\n')
+    if action:
+        switch_desktop(action, source, yes, lock.fileno())
+        return
     os.environ['CHATGPT_APP_DIR'] = str(source)
     if needs_prepare(source):
         if check:
-            raise RuntimeError('Runtime is missing or stale; run scripts/start.sh to prepare it')
+            raise RuntimeError('Runtime is missing or stale; run scripts/start to prepare it')
         print('Preparing App copy...', flush=True)
         os.environ['CHATGPT_WEB_LOCK_FD'] = str(lock.fileno())
         subprocess.run([sys.executable, str(ROOT / 'scripts/prepare.py')], check=True, pass_fds=(lock.fileno(),))
@@ -281,6 +481,11 @@ def main(arguments):
     binary = str(ROOT / '.runtime/ChatGPT')
     from runtime import run
     return run([binary, '--user-data-dir=' + str(ROOT / '.profile'), *electron_args], lock.fileno())
+
+
+def main(arguments):
+    with ExitStack() as stack:
+        return _main(arguments, stack)
 
 
 if __name__ == '__main__':

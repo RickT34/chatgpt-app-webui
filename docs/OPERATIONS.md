@@ -50,7 +50,7 @@
 
 ## 自动化启动与仓库内安装
 
-- `start.sh` 先检测可用 Python；缺少时经确认用官方 uv 安装器将 uv/Python 安装到 `.deps`，不修改 shell 配置。
+- `start` 先检测可用 Python；缺少时经确认用官方 uv 安装器将 uv/Python 安装到 `.deps`，不修改 shell 配置。
 - `bootstrap.py` 检查 Node/npm、App、动态库和依赖，逐项确认下载；`--yes` 提供明确预授权，`--check` 不下载，`--setup-only` 不启动。
 - 固定 App 26.930.21537 的 amd64/arm64 包和 SHA-256；Node 从官方 Node 22 LTS 清单解析具体版本并校验；不静默切换到新 App 版本。
 - 仅抽取 `.deb` 的 usr/lib/chatgpt 子树，不运行系统安装脚本；安全 tar 过滤防止目录穿越和外部符号链接。
@@ -99,7 +99,7 @@
 
 ## 2026-10-09 · Docker 部署
 
-- 新增 Dockerfile、compose.yaml 和容器入口，继续调用原 start.sh/bootstrap.py；镜像不包含原 App，首次启动使用固定版本及 SHA-256 下载/解包。
+- 新增 Dockerfile、compose.yaml 和容器入口，继续调用原 start/bootstrap.py；镜像不包含原 App，首次启动使用固定版本及 SHA-256 下载/解包。
 - 基础镜像为 Node 22 / Debian Trixie，构建时安装 Electron 动态库及 Python，并检查安全 tar 解包 API。进程默认以 UID/GID 1000:1000 运行。
 - /app 下的运行数据路径链接到 /data 命名卷；HOME 与 CODEX_HOME 也位于该卷。/workspace 使用独立项目卷，可通过 compose.override.yaml 改为宿主目录挂载。
 - 新增 CHATGPT_WEB_HOST：本机仍默认 127.0.0.1，容器内为 0.0.0.0；公开访问源继续由 CHATGPT_WEB_ORIGIN 控制。Compose 默认仅发布宿主机回环端口。
@@ -117,7 +117,7 @@
 - 未采用永久 immutable 缓存：原 App 的哈希文件名不包含适配补丁版本，同名 JS 的内容可能随适配代码变化。
 - 认证检查先于缓存校验，登录响应和未认证响应显式 no-store；保持动态接口与宿主资源 no-store。
 - 新增静态资源 HTTP 单元测试与 scripts/smoke-static.cjs，后者用于已启动服务的只读压缩/缓存检查。更新双语说明和验证记录。
-- 生效方式：停止当前服务后重新运行 start.sh，自动检测补丁变化并重建副本。无需新增依赖或修改 Nginx；回滚代码后同样重启即可。
+- 生效方式：停止当前服务后重新运行 start，自动检测补丁变化并重建副本。无需新增依赖或修改 Nginx；回滚代码后同样重启即可。
 
 ## 2026-10-09 · 启动卡住与连接失效处理
 
@@ -128,7 +128,7 @@
 - WebSocket 在模块下载期间提前接收并排队消息，避免注册正式处理器之前丢失状态事件。失败和 pagehide 关闭连接，释放 RPC、选择器和普通请求；不自动重放操作。
 - 服务端 15 秒发送 ping 和应用心跳，45 秒未收到 pong 终止失效连接；客户端 60 秒未收到消息提示重试。close 清理先核对连接身份，避免旧连接清除新连接。
 - 监听宿主主 frame 导航、加载失败、render-process-gone 和 destroyed，清除 snapshot/peer 并关闭客户端；重载保留主 renderer 所属 ID，防止辅助窗口抢占。异步注入失败按代数判定，避免过期回调清除新状态。
-- /bridge/status 增加 rendererState 供只读诊断；新增异常路径测试。重新运行 start.sh 自动重建副本后生效。
+- /bridge/status 增加 rendererState 供只读诊断；新增异常路径测试。重新运行 start 自动重建副本后生效。
 
 ## 2026-10-09 · 修正 App 服务握手监测
 
@@ -154,7 +154,7 @@
 - 新资源 URL 为 `/static/<version>/...`。版本覆盖原 App、桥接补丁和访问源，模块的相对导入继承该版本。版本资源使用 `private, max-age=31536000, immutable`；旧的未带版本 URL 仍可访问，使用 `private, no-cache`。未知版本返回 404/no-store，必须刷新页面，不能把新代码放到旧的 immutable URL 下。
 - 静态响应按 manifest 直接流式读取磁盘；304/HEAD 不读取正文、不重新计算哈希、不压缩。HTML 在进程启动时生成一次，仍需校验；bootstrap/status、上传、下载及宿主文件维持原认证与 no-store 策略。
 - 首次准备或更新需要额外处理时间与磁盘空间。本次 App 的缓存对象内容约 693 MiB（实际磁盘占用还包括文件系统开销）；后续正常启动复用 manifest，不重复压缩。修改访问源时自动重建版本，内容未变的压缩对象复用。
-- 更新/启动：停止现有服务后，继续使用原启动命令与环境变量（例如现有 `run.sh`）；`start.sh` 自动重建。也可先在相同环境下运行 `sh scripts/start.sh --setup-only`，把准备工作提前完成。`--check` 只检查，不生成资源。
+- 更新/启动：停止现有服务后，继续使用原启动命令与环境变量（例如现有 `run.sh`）；`start` 自动重建。也可先在相同环境下运行 `sh scripts/start --setup-only`，把准备工作提前完成。`--check` 只检查，不生成资源。
 - 恢复缺失的缓存对象：停止服务后删除 `.runtime/web-static/manifest.json`，再按原环境运行 `--setup-only`；缺失的内容文件会重新生成。若怀疑已有对象内容损坏，删除整个 `.runtime/web-static` 后重新准备。该目录只保存可重建的 App 静态资源，没有 profile/聊天记录。
 - 回滚：恢复上一版代码并按原命令重启，原 manifest 校验会重建 App 副本；无需清理 `.profile`。旧代码不使用新增的磁盘缓存，可在服务停止后删除 `.runtime/web-static` 回收空间。
 - 启动诊断：网页控制台的 `window.chatgptWebStartup.timings` 与 `chatgpt-web:*` Performance marks 记录阶段时间，真正就绪时输出一次汇总；认证后的 `/bridge/status` 增加 staticVersion、uptimeMs 和 rendererReadyMs。后两者从桥接主模块开始执行计时，不含 setup。
@@ -190,7 +190,7 @@
 
 ## 2026-10-12 · 本地浏览器验收与资源错误定位
 
-- 用户授权直接启动本地页面测试。使用 `CHATGPT_WEB_AUTH=none CHATGPT_WEB_ORIGIN=http://127.0.0.1:18765 sh scripts/start.sh --ozone-platform=headless --disable-gpu`，不调用 run.sh，不经过域名/反向代理。
+- 用户授权直接启动本地页面测试。使用 `CHATGPT_WEB_AUTH=none CHATGPT_WEB_ORIGIN=http://127.0.0.1:18765 sh scripts/start --ozone-platform=headless --disable-gpu`，不调用 run.sh，不经过域名/反向代理。
 - 资源 error 事件现在标明失败 SCRIPT/LINK 的 pathname，并将错误归入“下载页面资源”，避免沿用之前的“等待宿主”阶段而误判。路径不包含 URL 用户名、密码或查询参数。
 - 本地测试服务的 Origin 是 localhost 地址；若恢复域名访问，需要先停止该服务，再用原 run.sh 启动，不能直接用公网域名访问 Origin 不匹配的测试服务。
 
@@ -228,7 +228,7 @@
 - 启动输出默认 `CHATGPT_WEB_LOG_LEVEL=normal`：终端显示启动、预热、就绪、访问地址，以及去重后的可处理错误；可选远程控制未登录、GCM 注册和运行时弃用/监听器提示保留在详细日志。未知运行错误和异常退出仍提示，不按 failed 字样一律丢弃。
 - 原始 stdout/stderr 保存到 `.logs/host.log`，权限 0600，20 MiB 轮转，保留 3 个历史文件。`CHATGPT_WEB_LOG_LEVEL=debug` 同时向终端输出原始日志；排障时可查看该文件。原始日志可能包含账号/会话信息及登录链接，不应未经脱敏对外发布。
 - 启动器保持单实例锁、子进程退出码，并将 Ctrl-C/SIGTERM 传给自己启动的进程组。没有启用新服务，也没有修改机器上的 nginx 或 systemd 配置。
-- 若需要脱离终端常驻，可使用 `deploy/chatgpt-web.service` 用户服务模板：把 WorkingDirectory 改为实际仓库路径，将原域名/认证/标题等变量写入 `~/.config/chatgpt-web.env`（权限 600），首次先手动运行 `scripts/start.sh --setup-only` 完成准备，然后安装到 `~/.config/systemd/user/` 并执行 `systemctl --user daemon-reload`、`systemctl --user enable --now chatgpt-web.service`。用户服务无需登录就随机器启动还取决于该用户的 linger 设置，由服务器管理员按部署方式配置。已有 Docker 等进程托管可继续使用。
+- 若需要脱离终端常驻，可使用 `deploy/chatgpt-web.service` 用户服务模板：把 WorkingDirectory 改为实际仓库路径，将原域名/认证/标题等变量写入 `~/.config/chatgpt-web.env`（权限 600），首次先手动运行 `scripts/start --setup-only` 完成准备，然后安装到 `~/.config/systemd/user/` 并执行 `systemctl --user daemon-reload`、`systemctl --user enable --now chatgpt-web.service`。用户服务无需登录就随机器启动还取决于该用户的 linger 设置，由服务器管理员按部署方式配置。已有 Docker 等进程托管可继续使用。
 - 生效：按原配置重新启动一次。若回退代码，同样停止服务后重启，准备流程会根据补丁哈希重新生成副本。
 
 ## 2026-10-14 · 二进制桥接与浏览器配置缓存

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Update the repository-local Desktop without starting it.
+exec "$(dirname "$0")/start" update "$@"

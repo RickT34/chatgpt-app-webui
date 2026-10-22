@@ -9,7 +9,7 @@ for argument in "$@"; do
     case "$argument" in
         --yes) yes_mode=1 ;;
         --check) check_mode=1 ;;
-        --help) printf '%s\n' 'Usage: scripts/start.sh [--yes] [--check|--setup-only] [Electron options...]' 'Missing downloads require confirmation. --yes explicitly permits local downloads.'; exit 0 ;;
+        --help) printf '%s\n' 'Usage: scripts/start [--yes] [--check|--setup-only] [Electron options...]' '       scripts/start update|rollback [--yes]' 'update: prepare the latest stable Desktop; rollback: restore the previous Desktop.' 'Stop the Web UI before either operation. Neither command starts the App.' 'Missing downloads require confirmation. --yes explicitly permits local downloads.'; exit 0 ;;
     esac
 done
 . ./scripts/proxy.sh

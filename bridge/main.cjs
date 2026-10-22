@@ -64,7 +64,7 @@ const server = http.createServer(async(req,res)=>{
   if (u.pathname === '/login' && access.acceptsToken(u.searchParams.get('token'))) {
     res.writeHead(303,{'set-cookie':access.cookie,location:'/','cache-control':'no-store'});return res.end();
   }
-  if (!authorized(req)) {res.writeHead(401,{'cache-control':'no-store'});return res.end('Open the login URL printed by scripts/start.sh.');}
+  if (!authorized(req)) {res.writeHead(401,{'cache-control':'no-store'});return res.end('Open the login URL printed by scripts/start.');}
   if((req.method==='GET'||req.method==='HEAD')&&u.pathname.startsWith('/@fs/')){
     try{void serveFile(req,res,resourcePath(u));}catch{json(res,400,{error:'Invalid resource path'});}return;
   }

@@ -72,7 +72,7 @@ def memory_tree(parent):
 
 def prepare(env):
     with (ROOT / '.logs/memory-setup.log').open('w') as log:
-        subprocess.run(['sh', 'scripts/start.sh', '--setup-only'], cwd=ROOT, env=env, stdout=log, stderr=log, check=True, timeout=300)
+        subprocess.run(['sh', 'scripts/start', '--setup-only'], cwd=ROOT, env=env, stdout=log, stderr=log, check=True, timeout=300)
 
 
 def run(mode, env, number):

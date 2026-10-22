@@ -3,7 +3,8 @@
 import hashlib, json, os, pathlib, shutil, struct, datetime, fcntl, subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE = pathlib.Path(os.environ.get('CHATGPT_APP_DIR', '/usr/lib/chatgpt'))
-RUNTIME = ROOT / '.runtime'
+OUTPUT = pathlib.Path(os.environ.get('CHATGPT_WEB_PREPARE_DIR', ROOT))
+RUNTIME = OUTPUT / '.runtime'
 archive = SOURCE / 'resources/app.asar'
 host_renderer = os.environ.get('CHATGPT_WEB_HOST_RENDERER', 'minimal')
 if host_renderer not in ('minimal', 'full'):
@@ -131,12 +132,12 @@ with archive.open('rb') as f:
     out.replace(RUNTIME / 'resources/app.asar')
 manifest = {'prepared_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'source': str(archive),
     'app_version': package['version'], 'host_renderer': host_renderer, 'source_sha256': hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest(),
-    'original_main': original_main, 'patch_files': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted([*(ROOT/'bridge').iterdir(), ROOT/'scripts/prepare.py', ROOT/'scripts/prepare-static.cjs', ROOT/'scripts/start.sh', ROOT/'scripts/bootstrap.py', ROOT/'scripts/runtime.py', ROOT/'scripts/proxy.sh', ROOT/'package-lock.json']) if p.is_file()}}
-(ROOT/'prepare-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
+    'original_main': original_main, 'patch_files': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted([*(ROOT/'bridge').iterdir(), ROOT/'scripts/prepare.py', ROOT/'scripts/prepare-static.cjs', ROOT/'scripts/start', ROOT/'scripts/bootstrap.py', ROOT/'scripts/runtime.py', ROOT/'scripts/proxy.sh', ROOT/'package-lock.json']) if p.is_file()}}
+(OUTPUT/'prepare-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
 with (ROOT/'.logs/prepare-history.jsonl').open('a') as log:
     log.write(json.dumps(manifest)+'\n')
 if os.environ.get('CHATGPT_WEB_LOG_LEVEL') == 'debug':
     print(json.dumps(manifest, indent=2))
 else:
-    print(f'Prepared App {package["version"]} ({host_renderer}); manifest: {ROOT/"prepare-manifest.json"}', flush=True)
+    print(f'Prepared App {package["version"]} ({host_renderer}); manifest: {OUTPUT/"prepare-manifest.json"}', flush=True)
 subprocess.run(['node', str(ROOT/'scripts/prepare-static.cjs')], check=True)

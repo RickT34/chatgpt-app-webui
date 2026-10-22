@@ -71,13 +71,14 @@ async function build({output,origin,buildKey,files,read,html}){
 }
 
 async function main(){
- const root=path.resolve(__dirname,'..'),output=path.join(root,'.runtime/web-static');
- const prepared=JSON.parse(fs.readFileSync(path.join(root,'prepare-manifest.json')));
+ const root=path.resolve(__dirname,'..'),preparedRoot=process.env.CHATGPT_WEB_PREPARE_DIR||root;
+ const output=path.join(preparedRoot,'.runtime/web-static');
+ const prepared=JSON.parse(fs.readFileSync(path.join(preparedRoot,'prepare-manifest.json')));
  const {origin}=require('../bridge/access.cjs')();
  const buildKey=hash(JSON.stringify({source:prepared.source_sha256,patches:prepared.patch_files,origin}));
  let cached;try{cached=JSON.parse(fs.readFileSync(path.join(output,'manifest.json')));}catch{}
  const ready=cached?.buildKey===buildKey&&fs.existsSync(path.join(output,'objects'));
- if(process.argv.includes('--check')){if(!ready)throw Error('Static resources are missing or stale; run scripts/start.sh to prepare them');return;}
+ if(process.argv.includes('--check')){if(!ready)throw Error('Static resources are missing or stale; run scripts/start to prepare them');return;}
  if(ready)return;
  console.log('Preparing versioned web resources (one-time compression)...');
  // Host index.html may be a minimal relay document. Web resources always come

@@ -1,4 +1,5 @@
 .runtime/
+.desktop-stage-*/
 .profile/
 .logs/
 prepare-manifest.json
@@ -25,3 +26,4 @@ compose.override.yaml
 compose.override.yml
 
 boot
+.serena

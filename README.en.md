@@ -45,24 +45,32 @@ Static pages, scripts, and styles support Brotli/gzip compression. The browser k
 Download this repository and enter its directory:
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 On first launch, the script checks Python, Node/npm, the app, native shared libraries, and project dependencies. Before a required download, it displays the source, version, and destination, then asks `Continue [y/N]`. Pressing Enter or entering `n` stops setup.
 
 ```sh
 # Check the environment without downloading or starting the app
-scripts/start.sh --check
+scripts/start --check
 
 # Install dependencies and prepare the app copy without starting it
-scripts/start.sh --setup-only
+scripts/start --setup-only
 
 # Explicitly approve all repository-local downloads for unattended setup
-scripts/start.sh --yes --setup-only
-scripts/start.sh --yes --ozone-platform=headless --disable-gpu
+scripts/start --yes --setup-only
+scripts/start --yes --ozone-platform=headless --disable-gpu
 ```
 
 Use `--help` for launcher options; other arguments are passed through to Electron.
+
+### Updating and rolling back Desktop
+
+Stop the Web UI and run `scripts/update` (`scripts/update --yes` for unattended downloads). Run `scripts/rollback` to restore the version saved by the last successful update. The equivalent commands are `scripts/start update|rollback`, `npm run update:desktop -- --yes`, and `npm run rollback:desktop`. Unset `CHATGPT_APP_DIR` before using version management. Restart using your usual command and environment afterward; neither operation starts the App.
+
+Updates resolve the latest release for the host architecture from the official stable package index, verify its SHA-256, and prepare the bridge and static assets in a staging directory before switching. Failures preserve the original runtime; the next start or `--setup-only` recovers an interrupted switch. An already-current installation retains its rollback history. Allow at least 6 GiB of free space.
+
+The selection persists in `.deps/desktop-state.json`. The first update snapshots the old source, including a system installation, into `.deps/desktop-sources/`; later updates retain the version they replace. Rollback needs no App download and consumes the single saved rollback entry. Downloaded sources remain on disk. These commands preserve `.profile`; rollback does not reverse user-data migrations performed by a newer Desktop. Preparation checks compatibility, while actual browser behavior still needs validation after startup.
 
 Automatic installation covers:
 
@@ -80,7 +88,7 @@ Open the login URL printed in the terminal, such as `http://127.0.0.1:18765/logi
 The default listening address is `127.0.0.1:18765`. Press `Ctrl+C` to stop the service. Without the headless arguments, the app displays a local window, which can be used for initial sign-in:
 
 ```sh
-scripts/start.sh
+scripts/start
 ```
 
 After signing in, stop the windowed instance and start the headless version if desired.
@@ -90,7 +98,7 @@ After signing in, stop the windowed instance and start the headless version if d
 **Default: generate a random token on each start**
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 After a restart, the old URL and cookies are invalid. Open the new URL from `.logs/access-url`.
@@ -99,7 +107,7 @@ After a restart, the old URL and cookies are invalid. Open the new URL from `.lo
 
 ```sh
 export CHATGPT_WEB_ACCESS_TOKEN='replace-with-a-long-random-secret'
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 Use at least 16 characters. A random value generated with `openssl rand -hex 32` is recommended.
@@ -108,7 +116,7 @@ Use at least 16 characters. A random value generated with `openssl rand -hex 32`
 
 ```sh
 unset CHATGPT_WEB_ACCESS_TOKEN
-CHATGPT_WEB_AUTH=none scripts/start.sh --ozone-platform=headless --disable-gpu
+CHATGPT_WEB_AUTH=none scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 Open `http://127.0.0.1:18765/` directly. Anyone who can reach the service can operate the host app in this mode. Use it only on a trusted local machine, through a private tunnel, or behind a reverse proxy with separate authentication. **Do not expose an unauthenticated endpoint directly to the public internet.**
@@ -130,8 +138,8 @@ Open `http://127.0.0.1:18765/` directly. Anyone who can reach the service can op
 Examples of changing the app directory or port:
 
 ```sh
-CHATGPT_APP_DIR=/path/to/chatgpt scripts/start.sh --setup-only
-CHATGPT_WEB_PORT=18766 scripts/start.sh --ozone-platform=headless --disable-gpu
+CHATGPT_APP_DIR=/path/to/chatgpt scripts/start --setup-only
+CHATGPT_WEB_PORT=18766 scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 ## Docker deployment
@@ -227,7 +235,7 @@ Full template: [deploy/nginx.conf](deploy/nginx.conf). It assumes Nginx and the 
 ```sh
 export CHATGPT_WEB_ORIGIN=https://chatgpt.example.com
 export CHATGPT_WEB_ACCESS_TOKEN='replace-with-a-long-random-secret'
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 4. Run `sudo nginx -t` and reload Nginx after validation succeeds.
@@ -240,7 +248,7 @@ Make sure `CHATGPT_WEB_ORIGIN` exactly matches the browser-facing origin.
 After updating the app, stop the Web UI and run:
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 Startup checks the source ASAR and patch checksums, rebuilding the copy only when files are missing or changed. Resource links are updated when switching app sources.

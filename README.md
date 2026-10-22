@@ -48,24 +48,40 @@
 下载本仓库并进入目录：
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 首次启动会依次检查 Python、Node/npm、App、原生动态库和项目依赖。需要下载时会显示来源、版本与目标路径，并询问 `Continue [y/N]`；直接回车或输入 `n` 会停止。
 
 ```sh
 # 仅检查环境
-scripts/start.sh --check
+scripts/start --check
 
 # 完成环境安装和副本准备，但不启动 App
-scripts/start.sh --setup-only
+scripts/start --setup-only
 
 # 明确同意所有仓库内下载，适合无交互环境
-scripts/start.sh --yes --setup-only
-scripts/start.sh --yes --ozone-platform=headless --disable-gpu
+scripts/start --yes --setup-only
+scripts/start --yes --ozone-platform=headless --disable-gpu
 ```
 
 `--help` 查看入口选项，其他参数原样传递给 Electron。
+
+### 更新与回退 Desktop
+
+先停止 Web UI，在项目目录执行：
+
+```sh
+scripts/update          # 从官方稳定源获取最新版，询问后下载并准备
+scripts/update --yes    # 无交互更新
+scripts/rollback        # 回退到最近一次成功更新前的版本
+```
+
+也可使用 `scripts/start update|rollback`，或 `npm run update:desktop -- --yes` / `npm run rollback:desktop`。操作完成后，按原命令和环境变量启动服务；更新和回退本身不启动 App。若设置了 `CHATGPT_APP_DIR`，先取消该变量，再使用这些命令。
+
+更新会按本机架构读取官方稳定源的版本与 SHA-256，校验安装包，在独立目录完成桥接兼容性检查和静态资源准备后切换。下载、校验、准备或切换失败时保留原运行副本；切换过程中被中断时，下次启动或 `--setup-only` 会恢复原版本。已是最新版时保留原有回退记录。更新建议至少留出 6 GiB 空间。
+
+版本选择保存在 `.deps/desktop-state.json`，普通启动会继续使用选定版本。首次更新会备份原 App 源文件，后续更新保留刚替换掉的版本；`rollback` 无需下载 App，成功后消耗这一层回退记录。已下载的源文件保留在 `.deps/desktop-sources/`。回退恢复 Desktop 程序和适配副本，保留 `.profile`；它不撤销新版启动后可能进行的用户数据迁移。最新版通过准备检查后，仍需启动并验证实际网页功能。
 
 自动安装范围：
 
@@ -83,7 +99,7 @@ App 的 `.deb` **仅解包 App 文件，不需要 sudo**。
 默认监听 `127.0.0.1:18765`。`Ctrl+C` 停止服务。不带 headless 参数时会显示本机 App 窗口，可用于首次登录：
 
 ```sh
-scripts/start.sh
+scripts/start
 ```
 
 登录后停止窗口版本，再按需启动 headless 版本。
@@ -93,7 +109,7 @@ scripts/start.sh
 **默认：每次启动生成随机令牌**
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 服务重启后旧链接及旧 Cookie 失效，请重新打开 `.logs/access-url` 中的链接。
@@ -102,7 +118,7 @@ scripts/start.sh --ozone-platform=headless --disable-gpu
 
 ```sh
 export CHATGPT_WEB_ACCESS_TOKEN='replace-with-a-long-random-secret'
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 至少 16 个字符，建议使用 `openssl rand -hex 32` 生成的随机值。
@@ -111,7 +127,7 @@ scripts/start.sh --ozone-platform=headless --disable-gpu
 
 ```sh
 unset CHATGPT_WEB_ACCESS_TOKEN
-CHATGPT_WEB_AUTH=none scripts/start.sh --ozone-platform=headless --disable-gpu
+CHATGPT_WEB_AUTH=none scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 直接访问 `http://127.0.0.1:18765/`。此模式允许能访问服务的人操作宿主机 App，仅用于可信本机、私有隧道，或已有独立认证的反向代理。**不要将无认证入口直接暴露到公网**。
@@ -133,8 +149,8 @@ CHATGPT_WEB_AUTH=none scripts/start.sh --ozone-platform=headless --disable-gpu
 更改安装目录或端口的例子：
 
 ```sh
-CHATGPT_APP_DIR=/path/to/chatgpt scripts/start.sh --setup-only
-CHATGPT_WEB_PORT=18766 scripts/start.sh --ozone-platform=headless --disable-gpu
+CHATGPT_APP_DIR=/path/to/chatgpt scripts/start --setup-only
+CHATGPT_WEB_PORT=18766 scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 ## Docker 部署
@@ -215,7 +231,7 @@ ssh -N -L 18765:127.0.0.1:18765 user@target-machine
 ```sh
 export CHATGPT_WEB_ORIGIN=https://chatgpt.example.com
 export CHATGPT_WEB_ACCESS_TOKEN='replace-with-a-long-random-secret'
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 4. 执行 `sudo nginx -t`，通过后再重新加载 Nginx。
@@ -228,7 +244,7 @@ scripts/start.sh --ozone-platform=headless --disable-gpu
 更新 App 后，先停止 Web UI，再执行：
 
 ```sh
-scripts/start.sh --ozone-platform=headless --disable-gpu
+scripts/start --ozone-platform=headless --disable-gpu
 ```
 
 启动时会检查原 ASAR 与补丁的校验值，仅在缺失或变化时重新生成副本；切换来源时同步更新资源链接。

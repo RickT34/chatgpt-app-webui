@@ -12,7 +12,7 @@ async function verify(mode){
  delete env.CHATGPT_WEB_ACCESS_TOKEN;delete env.CHATGPT_WEB_ORIGIN;
  if(mode==='custom')env.CHATGPT_WEB_ACCESS_TOKEN=crypto.randomBytes(24).toString('hex');
  const log=fs.openSync(`.logs/verify-${mode}.log`,'w',0o600);
- const child=spawn('scripts/start.sh',['--ozone-platform=headless','--disable-gpu'],{env,detached:true,stdio:['ignore',log,log]});fs.closeSync(log);
+ const child=spawn('scripts/start',['--ozone-platform=headless','--disable-gpu'],{env,detached:true,stdio:['ignore',log,log]});fs.closeSync(log);
  try{
   let ready=false;
   for(let i=0;i<200;i++){
